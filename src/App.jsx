@@ -1368,7 +1368,7 @@ export default function App() {
   if (!currentUser && !staffViewMode) return (
     <><style>{CSS}</style>
     <LoginScreen staff={staff}
-      onLogin={u=>setCurrentUser(u)}
+      onLogin={u=>{setCurrentUser(u);if(u.role==="manager"||u.role==="supervisor"){setDivision("womens");}}}
       onQuickSale={()=>setCurrentUser(GUEST_USER)}
       onStaffView={()=>setStaffViewMode(true)} /></>
   );
@@ -1576,7 +1576,7 @@ export default function App() {
       {/* Header */}
       <header style={{background:"#0a0908",borderBottom:`2px solid ${div.dim}`,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52,position:"sticky",top:0,zIndex:200}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:divColor,fontWeight:700}}>{divLabel}</span>
+          {(currentUser?.role==="manager"||currentUser?.role==="supervisor") ? (<div style={{display:"flex",gap:4}}>{[{id:"womens",label:"Women's",color:DIVISIONS[0].color},{id:"mens",label:"Men's",color:DIVISIONS[1].color},{id:"combined",label:"Combined",color:"#a0a0a0"}].map(t=>(<button key={t.id} onClick={()=>setDivision(t.id)} style={{padding:"5px 12px",fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:"pointer",borderRadius:4,border:`1.5px solid ${division===t.id?t.color:"#2a2520"}`,background:division===t.id?t.color+"22":"transparent",color:division===t.id?t.color:"#555"}}>{t.label}</button>))}</div>) : (<span style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:divColor,fontWeight:700}}>{divLabel}</span>)}
           {lowStock.length>0&&<span style={{fontSize:10,color:"#e07070",fontWeight:700,background:"#3a1e1e",padding:"2px 7px",borderRadius:3}}>⚠ {lowStock.length} low</span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
