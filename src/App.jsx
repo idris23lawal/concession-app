@@ -1379,7 +1379,7 @@ export default function App() {
       allSales={allSales} allRefunds={allRefunds} allLoans={allLoans} allPsLoans={allPsLoans}
       onBack={()=>setStaffViewMode(false)} />
   );
-  if (!division)    return (<><style>{CSS}</style><DivisionPicker user={currentUser} onPick={d=>{setDivision(d);setScreen("sales");setActiveTill(defaultTill(d));}} /></>);
+  if (!division && currentUser?.role !== "manager" && currentUser?.role !== "supervisor")    return (<><style>{CSS}</style><DivisionPicker user={currentUser} onPick={d=>{setDivision(d);setScreen("sales");setActiveTill(defaultTill(d));}} /></>);
 
   const isPrivileged = currentUser.role === "manager" || currentUser.role === "supervisor";
   const isManager    = currentUser.role === "manager"; // manager-only features (AI Hub etc)
