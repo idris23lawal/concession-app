@@ -961,6 +961,7 @@ export default function App() {
 
   // UI state
   const [screen,         setScreen]         = useState("sales");
+  const [salesTab,       setSalesTab]        = useState("sales"); // "sales" | "refunds"
   const [activeTill,     setActiveTill]     = useState(null);   // set when division chosen
   const [tillPickerOpen, setTillPickerOpen] = useState(false);
   const [toast,          setToast]          = useState(null);
@@ -994,7 +995,6 @@ export default function App() {
   const [refScanDone,    setRefScanDone]    = useState(false);  // refund scanned
   const [loanScanDone,   setLoanScanDone]   = useState(false);  // loan scanned
   const [faultyScanDone, setFaultyScanDone] = useState(false);  // faulty scanned
-  const [salesMgrTab,    setSalesMgrTab]    = useState("combined");
 
   // Global barcode registry — shared across divisions
   const [barcodeRegistry, setBarcodeRegistry] = useState(() => {
@@ -1023,26 +1023,30 @@ export default function App() {
   }, [allProducts,allSales,allLoans,allPsLoans,allRefunds,allDeliveries,allGoals,allFaulty,allOddShoes,allScanLog]);
 
   // ── Division-scoped helpers ────────────────────────────────────────────────
-  const div       = DIVISIONS.find(d => d.id === division) ?? DIVISIONS[0];
-  const products  = division ? (allProducts[division]   ?? []) : [];
-  const sales     = division ? (allSales[division]      ?? []) : [];
-  const loans     = division ? (allLoans[division]      ?? []) : [];
-  const psLoans   = division ? (allPsLoans[division]    ?? []) : [];
-  const refunds   = division ? (allRefunds[division]    ?? []) : [];
-  const deliveries= division ? (allDeliveries[division] ?? []) : [];
+  const _isPriv   = (currentUser?.role==="manager"||currentUser?.role==="supervisor") ?? false;
+  const isCombined= _isPriv && division==="combined";
+  const activeDivId = isCombined ? "womens" : (division ?? "womens");
+  const div       = DIVISIONS.find(d => d.id === activeDivId) ?? DIVISIONS[0];
+  const products  = isCombined ? [...(allProducts.womens??[]),...(allProducts.mens??[])] : (division?(allProducts[division]??[]):[]);
+  const sales     = isCombined ? [...(allSales.womens??[]),...(allSales.mens??[])].sort((a,b)=>new Date(b.date)-new Date(a.date)) : (division?(allSales[division]??[]):[]);
+  const loans     = isCombined ? [...(allLoans.womens??[]),...(allLoans.mens??[])] : (division?(allLoans[division]??[]):[]);
+  const psLoans   = isCombined ? [...(allPsLoans.womens??[]),...(allPsLoans.mens??[])] : (division?(allPsLoans[division]??[]):[]);
+  const refunds   = isCombined ? [...(allRefunds.womens??[]),...(allRefunds.mens??[])] : (division?(allRefunds[division]??[]):[]);
+  const deliveries= isCombined ? [...(allDeliveries.womens??[]),...(allDeliveries.mens??[])] : (division?(allDeliveries[division]??[]):[]);
+  const faulty    = isCombined ? [...(allFaulty.womens??[]),...(allFaulty.mens??[])] : (division?(allFaulty[division]??[]):[]);
+  const oddShoes  = isCombined ? [...(allOddShoes.womens??[]),...(allOddShoes.mens??[])] : (division?(allOddShoes[division]??[]):[]);
+  const writeDiv  = isCombined ? "womens" : (division ?? "womens");
 
-  const setProducts   = (fn) => setAllProducts(p   => ({...p,   [division]: typeof fn==="function"?fn(p[division]??[]):fn}));
-  const setSales      = (fn) => setAllSales(p      => ({...p,   [division]: typeof fn==="function"?fn(p[division]??[]):fn}));
-  const setLoans      = (fn) => setAllLoans(p      => ({...p,   [division]: typeof fn==="function"?fn(p[division]??[]):fn}));
-  const setPsLoans    = (fn) => setAllPsLoans(p    => ({...p,   [division]: typeof fn==="function"?fn(p[division]??[]):fn}));
-  const setRefunds    = (fn) => setAllRefunds(p    => ({...p,   [division]: typeof fn==="function"?fn(p[division]??[]):fn}));
-  const setDeliveries = (fn) => setAllDeliveries(p => ({...p,   [division]: typeof fn==="function"?fn(p[division]??[]):fn}));
-  const setFaulty     = (fn) => setAllFaulty(p     => ({...p,   [division]: typeof fn==="function"?fn(p[division]??[]):fn}));
-  const setOddShoes   = (fn) => setAllOddShoes(p   => ({...p,   [division]: typeof fn==="function"?fn(p[division]??[]):fn}));
+  const setProducts   = (fn) => setAllProducts(p   => ({...p,   [writeDiv]: typeof fn==="function"?fn(p[writeDiv]??[]):fn}));
+  const setSales      = (fn) => setAllSales(p      => ({...p,   [writeDiv]: typeof fn==="function"?fn(p[writeDiv]??[]):fn}));
+  const setLoans      = (fn) => setAllLoans(p      => ({...p,   [writeDiv]: typeof fn==="function"?fn(p[writeDiv]??[]):fn}));
+  const setPsLoans    = (fn) => setAllPsLoans(p    => ({...p,   [writeDiv]: typeof fn==="function"?fn(p[writeDiv]??[]):fn}));
+  const setRefunds    = (fn) => setAllRefunds(p    => ({...p,   [writeDiv]: typeof fn==="function"?fn(p[writeDiv]??[]):fn}));
+  const setDeliveries = (fn) => setAllDeliveries(p => ({...p,   [writeDiv]: typeof fn==="function"?fn(p[writeDiv]??[]):fn}));
+  const setFaulty     = (fn) => setAllFaulty(p     => ({...p,   [writeDiv]: typeof fn==="function"?fn(p[writeDiv]??[]):fn}));
+  const setOddShoes   = (fn) => setAllOddShoes(p   => ({...p,   [writeDiv]: typeof fn==="function"?fn(p[writeDiv]??[]):fn}));
 
   const availStock = p => p.stock - p.onLoan;
-  const faulty    = division ? (allFaulty[division]   ?? []) : [];
-  const oddShoes  = division ? (allOddShoes[division] ?? []) : [];
 
   // ── Goals ──────────────────────────────────────────────────────────────────
   const todayGoals = () => {
@@ -1365,42 +1369,27 @@ export default function App() {
   const GUEST_USER = {id:"GUEST", name:"Quick Sale", role:"staff"};
   const [staffViewMode, setStaffViewMode] = useState(false);
 
-  if (!currentUser && !staffViewMode) return (
-    <><style>{CSS}</style>
-    <LoginScreen staff={staff}
-      onLogin={u=>setCurrentUser(u)}
-      onQuickSale={()=>setCurrentUser(GUEST_USER)}
-      onStaffView={()=>setStaffViewMode(true)} /></>
-  );
-
-  // Staff View — no login, read-only daily dashboard
-  if (staffViewMode && !currentUser) return (
-    <StaffDailyView
-      allSales={allSales} allRefunds={allRefunds} allLoans={allLoans} allPsLoans={allPsLoans}
-      onBack={()=>setStaffViewMode(false)} />
-  );
-  if (!division)    return (<><style>{CSS}</style><DivisionPicker user={currentUser} onPick={d=>{setDivision(d);setScreen("sales");setActiveTill(defaultTill(d));}} /></>);
-
-  const isPrivileged = currentUser.role === "manager" || currentUser.role === "supervisor";
-  const isManager    = currentUser.role === "manager"; // manager-only features (AI Hub etc)
-  // Redirect non-managers away from manager-only screens
+  // ── All non-hook derived state ─────────────────────────────────────────────
+  const isPrivileged = (currentUser?.role === "manager" || currentUser?.role === "supervisor") ?? false;
+  const isManager    = currentUser?.role === "manager" ?? false;
   const managerScreens = ["goals","loanmgmt","stock","history","eod","receive","ai","assign","scanlog"];
   const safeScreen = (!isPrivileged && managerScreens.includes(screen)) ? "sales" : screen;
   const unassignedSales = sales.filter(s=>s.isUnassigned);
-  const divColor = div.color;
-  const divLabel = div.label;
-  const tills = divTills(division);
+  const divColor = isCombined ? "#a0a0a0" : div.color;
+  const divLabel = isCombined ? "Combined" : div.label;
+  const tills = divTills(activeDivId);
 
   const screenList = [
     {id:"sales",   label:"Sales"},
-    {id:"refunds", label:"Refunds & Exchanges"},
-    {id:"loans",   label:"Stock on Loan"},
-    {id:"faulty",  label:`Faulty${faulty.filter(f=>f.status==="open").length?` (${faulty.filter(f=>f.status==="open").length})`:""}`},
-    {id:"odd",     label:`Odd Shoes${oddShoes.filter(o=>o.status==="logged").length?` (${oddShoes.filter(o=>o.status==="logged").length})`:""}`},
+    ...(!isPrivileged ? [
+      {id:"loans",   label:"Stock on Loan"},
+    ] : []),
+    {id:"faulty",  label:"Faulty"+(faulty.filter(f=>f.status==="open").length?" ("+faulty.filter(f=>f.status==="open").length+")":"")},
+    {id:"odd",     label:"Odd Shoes"+(oddShoes.filter(o=>o.status==="logged").length?" ("+oddShoes.filter(o=>o.status==="logged").length+")":"")},
     ...(isPrivileged ? [
       {id:"goals",    label:"Team Goal"},
-      {id:"assign",   label:`Assign Sales${unassignedSales.length?` (${unassignedSales.length})`:""}`},
-      {id:"loanmgmt", label:`Loan Management${openLoans.length?` (${openLoans.length})`:""}`},
+      {id:"assign",   label:"Assign Sales"+(unassignedSales.length?" ("+unassignedSales.length+")":"")},
+      {id:"loanmgmt", label:"Loans"+((openLoans.length+openPsLoans.length)?" ("+(openLoans.length+openPsLoans.length)+")":"")},
       {id:"stock",    label:"Stock"},
       {id:"history",  label:"History"},
       {id:"eod",      label:"EOD Report"},
@@ -1409,6 +1398,26 @@ export default function App() {
       ...(isManager ? [{id:"ai", label:"✦ AI Hub"}] : []),
     ] : []),
   ];
+
+  // ── Early returns (after all hooks and const declarations) ─────────────────
+  if (!currentUser && !staffViewMode) return (
+    <><style>{CSS}</style>
+    <LoginScreen staff={staff}
+      onLogin={u=>{
+        setCurrentUser(u);
+        if (u.role==="manager"||u.role==="supervisor") { setDivision("womens"); setActiveTill(null); }
+      }}
+      onQuickSale={()=>setCurrentUser(GUEST_USER)}
+      onStaffView={()=>setStaffViewMode(true)} /></>
+  );
+  if (staffViewMode && !currentUser) return (
+    <StaffDailyView
+      allSales={allSales} allRefunds={allRefunds} allLoans={allLoans} allPsLoans={allPsLoans}
+      onBack={()=>setStaffViewMode(false)} />
+  );
+  if (!division && !isPrivileged) return (
+    <><style>{CSS}</style><DivisionPicker user={currentUser} onPick={d=>{setDivision(d);setScreen("sales");setActiveTill(defaultTill(d));}} /></>
+  );
 
   return (
     <div style={{fontFamily:"'Outfit',sans-serif",minHeight:"100vh",background:"#0e0c0a",color:"#f0e8d8"}}>
@@ -1576,16 +1585,33 @@ export default function App() {
       {/* Header */}
       <header style={{background:"#0a0908",borderBottom:`2px solid ${div.dim}`,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52,position:"sticky",top:0,zIndex:200}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:divColor,fontWeight:700}}>{divLabel}</span>
+          {isPrivileged ? (
+            /* Manager — division switcher tabs */
+            <div style={{display:"flex",gap:4}}>
+              {[
+                {id:"womens",   label:"Women's", color:DIVISIONS[0].color},
+                {id:"mens",     label:"Men's",   color:DIVISIONS[1].color},
+                {id:"combined", label:"Combined",color:"#a0a0a0"},
+              ].map(t=>(
+                <button key={t.id} onClick={()=>setDivision(t.id)}
+                  style={{padding:"5px 12px",fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:"pointer",borderRadius:4,border:`1.5px solid ${division===t.id?t.color:"#2a2520"}`,background:division===t.id?t.color+"22":"transparent",color:division===t.id?t.color:"#555",transition:"all .15s"}}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:divColor,fontWeight:700}}>{divLabel}</span>
+          )}
           {lowStock.length>0&&<span style={{fontSize:10,color:"#e07070",fontWeight:700,background:"#3a1e1e",padding:"2px 7px",borderRadius:3}}>⚠ {lowStock.length} low</span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={()=>setTillPickerOpen(true)}
+          {!isPrivileged && <button onClick={()=>setTillPickerOpen(true)}
             style={{display:"flex",alignItems:"center",gap:4,background:divColor+"18",border:`1px solid ${divColor}44`,borderRadius:6,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit"}}>
             <span style={{fontSize:11,color:divColor,fontWeight:700}}>TILL</span>
             <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:divColor,fontWeight:700,marginLeft:2}}>{activeTill}</span>
             <span style={{fontSize:10,color:divColor+"88",marginLeft:2}}>▾</span>
-          </button>
+          </button>}
+          <span style={{fontSize:12,color:"#555"}}>{currentUser.name}</span>
           <button onClick={()=>{setCurrentUser(null);setDivision(null);setActiveTill(null);}}
             style={{background:"none",border:"1px solid #2a2520",color:"#555",padding:"6px 12px",fontSize:12,cursor:"pointer",borderRadius:6,fontFamily:"inherit",fontWeight:600}}>
             ✕
@@ -1606,6 +1632,24 @@ export default function App() {
         {/* ═══ SALES SCREEN ════════════════════════════════════════════════════ */}
         {safeScreen==="sales" && (
           <div>
+            {/* Sub-tabs: Sales | Refunds */}
+            <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a1714",marginBottom:20}}>
+              {[
+                {id:"sales",   label:"Sales"},
+                {id:"refunds", label:"Refunds & Exchanges"+(todayRefunds.length?" ("+todayRefunds.length+")":"")},
+              ].map(t=>{
+                const active = salesTab===t.id;
+                return (
+                  <button key={t.id} onClick={()=>setSalesTab(t.id)}
+                    style={{padding:"10px 18px",background:"none",border:"none",borderBottom:`2px solid ${active?divColor:"transparent"}`,color:active?divColor:"#555",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,transition:"all .15s",whiteSpace:"nowrap"}}>
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* ── SALES TAB ─────────────────────────────────────────────────── */}
+            {salesTab==="sales" && (<div>
             {/* ── INPUT MODE (Quick Sale / staff only) ──────────────────────── */}
             {!isPrivileged ? (<div>
             {/* ── SCAN SESSION MODE ─────────────────────────────────────────── */}
@@ -1987,25 +2031,8 @@ export default function App() {
 
                 return (
                   <div>
-                    {/* Division tabs */}
-                    <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a1714",marginBottom:20}}>
-                      {[
-                        {id:"combined", label:"Combined"},
-                        {id:"womens",   label:"622 WOMEN", color:DIVISIONS[0].color},
-                        {id:"mens",     label:"637 MEN",   color:DIVISIONS[1].color},
-                      ].map(t=>{
-                        const active = (salesMgrTab||"combined")===t.id;
-                        return (
-                          <button key={t.id} onClick={()=>setSalesMgrTab(t.id)}
-                            style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${active?(t.color||"#f0e8d8"):"transparent"}`,color:active?(t.color||"#f0e8d8"):"#555",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .15s",whiteSpace:"nowrap"}}>
-                            {t.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-
                     {/* Combined view */}
-                    {(salesMgrTab||"combined")==="combined"&&(
+                    {isCombined&&(
                       <div>
                         {/* Side by side */}
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
@@ -2069,8 +2096,8 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* 622 Women only */}
-                    {(salesMgrTab||"combined")==="womens"&&(
+                    {/* Women's only */}
+                    {!isCombined&&division==="womens"&&(
                       <div>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                           <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555"}}>622 WOMEN — Today</div>
@@ -2080,8 +2107,8 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* 637 Men only */}
-                    {(salesMgrTab||"combined")==="mens"&&(
+                    {/* Men's only */}
+                    {!isCombined&&division==="mens"&&(
                       <div>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                           <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555"}}>637 MEN — Today</div>
@@ -2203,13 +2230,13 @@ export default function App() {
             </div>
           );
         })()}
+        </div>)} {/* end salesTab==="sales" */}
 
-        {/* ═══ REFUND / EXCHANGE ═══════════════════════════════════════════════ */}
-        {safeScreen==="refunds"&&(
+            {/* ── REFUNDS TAB ───────────────────────────────────────────────── */}
+            {salesTab==="refunds" && (
           <div>
             {!isPrivileged ? (
             <div>
-            <div className="section-title">{divLabel} — Refunds & Exchanges</div>
             <div className="section-sub">Record returned or exchanged shoes</div>
             <div className="card" style={{padding:20,marginBottom:28}}>
               <div style={{display:"flex",gap:8,marginBottom:16}}>
@@ -2350,8 +2377,8 @@ export default function App() {
                 )}
               </div>
             )}
-          </div>
-        )}
+          </div>)} {/* end salesTab==="refunds" */}
+        </div>)} {/* end safeScreen==="sales" */}
 
         {/* ═══ ISSUE STOCK ON LOAN (all staff) ════════════════════════════════ */}
         {safeScreen==="loans"&&(
@@ -2961,11 +2988,11 @@ export default function App() {
           </div>
         )}
 
-        {/* ═══ LOAN MANAGEMENT (manager only) ══════════════════════════════════ */}
+        {/* ═══ LOANS (manager only) ════════════════════════════════════════════ */}
         {safeScreen==="loanmgmt"&&isPrivileged&&(
           <div>
-            <div className="section-title">{divLabel} — Loan Management</div>
-            <div className="section-sub">Full view of active and returned stock loans</div>
+            <div className="section-title">{divLabel} — Loans</div>
+            <div className="section-sub">All active display loans and personal shopper loans</div>
             <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:10}}>Active Loans <span style={{color:divColor}}>{openLoans.length}</span></div>
             {openLoans.length===0?<div style={{color:"#333",fontSize:13,padding:"16px 0"}}>No active loans</div>:(
               <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
@@ -3749,4 +3776,3 @@ export default function App() {
       </main>
     </div>
   );
-}
