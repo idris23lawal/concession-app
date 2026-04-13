@@ -1368,7 +1368,7 @@ export default function App() {
   if (!currentUser && !staffViewMode) return (
     <><style>{CSS}</style>
     <LoginScreen staff={staff}
-      onLogin={u=>{setCurrentUser(u);if(u.role==="manager"||u.role==="supervisor"){setDivision("womens");}}}
+      onLogin={u=>{setCurrentUser(u);if(u.role==="manager"||u.role==="supervisor"){setDivision("combined");}}}
       onQuickSale={()=>setCurrentUser(GUEST_USER)}
       onStaffView={()=>setStaffViewMode(true)} /></>
   );
