@@ -994,7 +994,6 @@ export default function App() {
   const [refScanDone,    setRefScanDone]    = useState(false);  // refund scanned
   const [loanScanDone,   setLoanScanDone]   = useState(false);  // loan scanned
   const [faultyScanDone, setFaultyScanDone] = useState(false);  // faulty scanned
-  const [salesMgrTab,    setSalesMgrTab]    = useState("combined");
 
   // Global barcode registry — shared across divisions
   const [barcodeRegistry, setBarcodeRegistry] = useState(() => {
@@ -1987,25 +1986,8 @@ export default function App() {
 
                 return (
                   <div>
-                    {/* Division tabs */}
-                    <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a1714",marginBottom:20}}>
-                      {[
-                        {id:"combined", label:"Combined"},
-                        {id:"womens",   label:"622 WOMEN", color:DIVISIONS[0].color},
-                        {id:"mens",     label:"637 MEN",   color:DIVISIONS[1].color},
-                      ].map(t=>{
-                        const active = (salesMgrTab||"combined")===t.id;
-                        return (
-                          <button key={t.id} onClick={()=>setSalesMgrTab(t.id)}
-                            style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${active?(t.color||"#f0e8d8"):"transparent"}`,color:active?(t.color||"#f0e8d8"):"#555",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .15s",whiteSpace:"nowrap"}}>
-                            {t.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-
                     {/* Combined view */}
-                    {(salesMgrTab||"combined")==="combined"&&(
+                    {(division==="womens"?false:division==="mens"?false:true)&&(
                       <div>
                         {/* Side by side */}
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
@@ -2070,7 +2052,7 @@ export default function App() {
                     )}
 
                     {/* 622 Women only */}
-                    {(salesMgrTab||"combined")==="womens"&&(
+                    {division==="womens"&&(
                       <div>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                           <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555"}}>622 WOMEN — Today</div>
@@ -2081,7 +2063,7 @@ export default function App() {
                     )}
 
                     {/* 637 Men only */}
-                    {(salesMgrTab||"combined")==="mens"&&(
+                    {division==="mens"&&(
                       <div>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                           <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555"}}>637 MEN — Today</div>
