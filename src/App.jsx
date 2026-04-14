@@ -724,7 +724,7 @@ function AIHub({ buildContext, divColor, staff, fmt }) {
 
 // ─── Main App ──────────────────────────────────────────────────────────────────
 // ─── Staff Daily View (no login required) ─────────────────────────────────────
-function StaffDailyView({ allSales, allRefunds, allLoans, allPsLoans, onBack }) {
+function StaffDailyView({ allSales, allRefunds, allLoans, allPsLoans, allGoals, onBack }) {
   const [div, setDiv]   = useState("womens");
   const [tab, setTab]   = useState("sales");
   const today = new Date().toDateString();
@@ -739,6 +739,13 @@ function StaffDailyView({ allSales, allRefunds, allLoans, allPsLoans, onBack }) 
   const totalRev = todaySales.reduce((t,s)=>t+s.total,0);
   const fmt  = n  => `€${Number(n).toFixed(2)}`;
   const fmtT = iso => new Date(iso).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
+
+  const dayName = getDayName();
+  const wk = getWeekKey();
+  const goal = allGoals?.[div]?.[wk]?.[dayName] ?? DEFAULT_WEEKLY_GOALS[div]?.[dayName] ?? {revenue:1000,units:12};
+  const revPct = Math.min(100, goal.revenue>0?(totalRev/goal.revenue)*100:0);
+  const unitsPct = Math.min(100, goal.units>0?(todaySales.length/goal.units)*100:0);
+  const revDone = totalRev>=goal.revenue, unitsDone = todaySales.length>=goal.units;
 
   const tabs = [
     {id:"sales",   label:`Sales (${todaySales.length})`},
@@ -780,6 +787,25 @@ function StaffDailyView({ allSales, allRefunds, allLoans, allPsLoans, onBack }) 
           <div key={label} style={{background:"#111009",border:"1px solid #1e1c1a",borderRadius:6,padding:"8px 10px",textAlign:"center"}}>
             <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color,marginBottom:2}}>{value}</div>
             <div style={{fontSize:9,color:"#555",fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase"}}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Target progress */}
+      <div style={{padding:"0 16px 10px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,flexShrink:0}}>
+        {[{label:"Revenue",val:fmt(totalRev),target:fmt(goal.revenue),pct:revPct,done:revDone},{label:"Units",val:todaySales.length,target:`${goal.units}`,pct:unitsPct,done:unitsDone}].map(({label,val,target,pct,done})=>(
+          <div key={label} style={{background:"#111009",border:`1px solid ${done?"#3a6a4044":"#1e1c1a"}`,borderRadius:6,padding:"8px 10px",position:"relative",overflow:"hidden"}}>
+            <div style={{position:"absolute",inset:0,background:`linear-gradient(90deg,${done?"#1e4a22":"#1a1a12"} ${pct}%,transparent ${pct}%)`,opacity:.5}} />
+            <div style={{position:"relative"}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:done?"#6ea870":"#555"}}>{label}{done?" ✓":""}</span>
+                <span style={{fontSize:9,color:"#444"}}>/ {target}</span>
+              </div>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:done?"#6ea870":divColor,marginBottom:4}}>{val}</div>
+              <div style={{background:"#0a0908",borderRadius:2,height:3,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${pct}%`,background:done?"#6ea870":divColor,borderRadius:2,transition:"width .5s"}} />
+              </div>
+            </div>
           </div>
         ))}
       </div>
@@ -935,18 +961,8 @@ export default function App() {
 
   // ── Till configuration ─────────────────────────────────────────────────────
   // Each till has an id, label, and which division it "belongs to" by default
-  const TILLS = {
-    womens: [
-      { id: "622", label: "622", home: "womens", desc: "622 WOMEN default" },
-      { id: "637", label: "637", home: "mens",   desc: "637 MEN default"   },
-    ],
-    mens: [
-      { id: "622", label: "622", home: "womens", desc: "622 WOMEN default" },
-      { id: "637", label: "637", home: "mens",   desc: "637 MEN default"   },
-    ],
-  };
-  const divTills     = (d) => TILLS[d] ?? [];
-  const defaultTill  = (d) => (TILLS[d] ?? []).find(t => t.home === d)?.id ?? TILLS[d]?.[0]?.id ?? "T1";
+  const divTills     = (d) => [];
+  const defaultTill  = (d) => null;
 
   // Per-division data — stored as { womens: [...], mens: [...] }
   const [allProducts,   setAllProducts]   = useState(() => load("products",   SAMPLE_PRODUCTS));
@@ -977,7 +993,7 @@ export default function App() {
   const blankFaultyForm = {style:"", colour:"", size:"", sku:"", faultType:"", description:"", action:"return"};
   const blankOddForm = {style:"", colour:"", shoe1Size:"", shoe1Foot:"left", shoe2Style:"", shoe2Colour:"", shoe2Sku:"", shoe2Size:"", shoe2Foot:"right", sku:"", foundBy:"", note:"", status:"logged"};
   const [saleForm,    setSaleForm]   = useState(blankSaleForm);
-  const [loanForm,    setLoanForm]   = useState({style:"",code:"",colour:"",size:"",location:"",note:""});
+  const [loanForm,    setLoanForm]   = useState({style:"",code:"",colour:"",size:"",location:"",note:"",requestedBy:""});
   const [psForm,      setPsForm]     = useState({style:"",code:"",colour:"",size:"",shopperName:"",shopperId:"",note:""});
   const [refForm,     setRefForm]    = useState({type:"refund",style:"",code:"",colour:"",size:"",origPrice:"",tillNo:"",reason:"",exchangeStyle:"",exchangeCode:"",exchangeColour:"",exchangeSize:""});
   const [recvForm,    setRecvForm]   = useState({product:null,qty:"",note:""});
@@ -990,6 +1006,7 @@ export default function App() {
   const colourInputRef = useRef(null);
   const [scanMode,       setScanMode]       = useState(false);
   const [histTab,        setHistTab]        = useState("sales");  // history screen tab
+  const [faultyOddTab,   setFaultyOddTab]   = useState("faulty");
   const [allScanLog,     setAllScanLog]     = useState(() => load("scanLog", {womens:[],mens:[]}));
   const [refScanDone,    setRefScanDone]    = useState(false);  // refund scanned
   const [loanScanDone,   setLoanScanDone]   = useState(false);  // loan scanned
@@ -1110,6 +1127,8 @@ export default function App() {
   const recordFaulty = () => {
     const {style, colour, size, sku, faultType, description, action} = faultyForm;
     if (!style.trim()) return showToast("Enter shoe style","err");
+    if (!sku.trim()) return showToast("Enter style code","err");
+    if (!colour.trim()) return showToast("Enter colour","err");
     if (!size) return showToast("Select a size","err");
     if (!faultType) return showToast("Select fault type","err");
     setFaulty(p => [{id:uid(), division, staffId:currentUser.id, staffName:currentUser.name,
@@ -1124,6 +1143,8 @@ export default function App() {
   const recordOddShoe = () => {
     const {style, colour, shoe1Size, shoe1Foot, shoe2Style, shoe2Colour, shoe2Sku, shoe2Size, shoe2Foot, sku, foundBy, note} = oddForm;
     if (!style.trim()) return showToast("Enter shoe style","err");
+    if (!sku.trim()) return showToast("Enter style code","err");
+    if (!colour.trim()) return showToast("Enter colour","err");
     if (!shoe1Size || !shoe2Size) return showToast("Select both sizes","err");
     setOddShoes(p => [{id:uid(), division, staffId:currentUser.id, staffName:currentUser.name,
       style:style.trim(), colour:colour.trim(), sku:sku.trim(),
@@ -1180,6 +1201,10 @@ export default function App() {
   const confirmScannedSales = () => {
     const valid = scanItems.filter(item=>item.style.trim()&&item.price&&parseFloat(item.price)>0);
     if (valid.length===0) return showToast("No valid items to confirm","err");
+    const missing = valid.find(item=>!item.code?.trim());
+    if (missing) return showToast(`Enter style code for ${missing.style||"an item"}`, "err");
+    const missingColour = valid.find(item=>!item.colour?.trim());
+    if (missingColour) return showToast(`Enter colour for ${missingColour.style||"an item"}`, "err");
     const overrideStaff = scanStaffId ? staff.find(s=>s.id.toLowerCase()===scanStaffId.trim().toLowerCase()) : null;
     const resolvedStaffId   = overrideStaff ? overrideStaff.id   : currentUser.id==="GUEST" ? "UNASSIGNED" : currentUser.id;
     const resolvedStaffName = overrideStaff ? overrideStaff.name : currentUser.id==="GUEST" ? "Unassigned"  : currentUser.name;
@@ -1225,6 +1250,8 @@ export default function App() {
     const basePrice  = parseFloat(price) || product?.price || 0;
     const unitPrice  = discount ? +(basePrice * (1 - discount.pct/100)).toFixed(2) : basePrice;
     if (!styleName)   return showToast("Enter shoe style","err");
+    if (!product && !extProductCode.trim()) return showToast("Enter style code","err");
+    if (!product && !colourName) return showToast("Enter colour","err");
     if (!size)        return showToast("Select a size","err");
     if (basePrice<=0) return showToast("Enter sale price","err");
     if (product && availStock(product) < 1) return showToast("No stock available","err");
@@ -1259,12 +1286,16 @@ export default function App() {
   };
 
   const recordLoan = () => {
-    const {style,code,colour,size,location,note}=loanForm;
+    const {style,code,colour,size,location,note,requestedBy}=loanForm;
     if (!style.trim()) return showToast("Enter shoe style","err");
+    if (!code.trim()) return showToast("Enter style code","err");
+    if (!colour.trim()) return showToast("Enter colour","err");
     if (!size) return showToast("Select a size","err");
+    if (!location.trim()) return showToast("Enter location / purpose","err");
+    if (!requestedBy.trim()) return showToast("Enter name of person requesting","err");
     const productName=`${style.trim()}${colour?" ("+colour+")":""}`;
-    setLoans(p=>[{id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,location:location||"Unspecified",note,date:new Date().toISOString(),returned:false},...p]);
-    setLoanForm({style:"",code:"",colour:"",size:"",location:"",note:""});
+    setLoans(p=>[{id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,location:location||"Unspecified",note,requestedBy:requestedBy.trim(),date:new Date().toISOString(),returned:false},...p]);
+    setLoanForm({style:"",code:"",colour:"",size:"",location:"",note:"",requestedBy:""});
     showToast(`${productName} on loan`);
   };
 
@@ -1277,6 +1308,8 @@ export default function App() {
   const recordPsLoan = () => {
     const {style,code,colour,size,shopperName,shopperId,note}=psForm;
     if (!style.trim()) return showToast("Enter shoe style","err");
+    if (!code.trim()) return showToast("Enter style code","err");
+    if (!colour.trim()) return showToast("Enter colour","err");
     if (!size) return showToast("Select a size","err");
     if (!shopperName||!shopperId) return showToast("Shopper name and ID required","err");
     const productName=`${style.trim()}${colour?" ("+colour+")":""}`;
@@ -1299,6 +1332,9 @@ export default function App() {
   const recordRefund = () => {
     const {type,style,code,colour,size,origPrice,tillNo,reason,exchangeStyle,exchangeCode,exchangeColour,exchangeSize}=refForm;
     if (!style.trim()) return showToast("Enter shoe style","err");
+    if (!code.trim()) return showToast("Enter style code","err");
+    if (!colour.trim()) return showToast("Enter colour","err");
+    if (!size) return showToast("Select a size","err");
     if (!tillNo) return showToast("Till number required","err");
     const productName=`${style.trim()}${colour?" ("+colour+")":""}`;
     const exchangeProductName=type==="exchange"&&exchangeStyle?`${exchangeStyle.trim()}${exchangeColour?" ("+exchangeColour+")":""}`:null;
@@ -1367,7 +1403,7 @@ export default function App() {
   if (!currentUser && !staffViewMode) return (
     <><style>{CSS}</style>
     <LoginScreen staff={staff}
-      onLogin={u=>{setCurrentUser(u);if(u.role==="manager"||u.role==="supervisor"){setDivision("combined");}}}
+      onLogin={u=>{setCurrentUser(u);if(u.role==="manager"||u.role==="supervisor"){setDivision("womens");}}}
       onQuickSale={()=>setCurrentUser(GUEST_USER)}
       onStaffView={()=>setStaffViewMode(true)} /></>
   );
@@ -1392,14 +1428,12 @@ export default function App() {
 
   const screenList = [
     {id:"sales",   label:"Sales"},
-    {id:"refunds", label:"Refunds & Exchanges"},
-    {id:"loans",   label:"Stock on Loan"},
+    ...(!isPrivileged ? [{id:"refunds", label:"Refunds & Exchanges"}] : []),
+    {id:"loans",   label:isPrivileged?"Loan Management":"Stock on Loan"},
     {id:"faulty",  label:`Faulty${faulty.filter(f=>f.status==="open").length?` (${faulty.filter(f=>f.status==="open").length})`:""}`},
     {id:"odd",     label:`Odd Shoes${oddShoes.filter(o=>o.status==="logged").length?` (${oddShoes.filter(o=>o.status==="logged").length})`:""}`},
     ...(isPrivileged ? [
       {id:"goals",    label:"Team Goal"},
-      {id:"assign",   label:`Assign Sales${unassignedSales.length?` (${unassignedSales.length})`:""}`},
-      {id:"loanmgmt", label:`Loan Management${openLoans.length?` (${openLoans.length})`:""}`},
       {id:"stock",    label:"Stock"},
       {id:"history",  label:"History"},
       {id:"eod",      label:"EOD Report"},
@@ -1492,25 +1526,15 @@ export default function App() {
       {tillPickerOpen && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,padding:16}}>
           <div className="card" style={{width:"100%",maxWidth:340,padding:28,textAlign:"center"}}>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,marginBottom:4}}>Change Till</div>
-            <div style={{fontSize:12,color:"#555",marginBottom:20}}>Currently on <strong style={{color:divColor}}>{activeTill}</strong></div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              {tills.map(t=>{
-                const isActive = activeTill===t.id;
-                const isHome   = t.home===division;
-                return (
-                  <button key={t.id} onClick={()=>{setActiveTill(t.id);setTillPickerOpen(false);showToast(`Switched to ${t.id}`);}}
-                    style={{padding:"18px 12px",fontFamily:"inherit",background:isActive?divColor+"22":"#0a0908",border:`1.5px solid ${isActive?divColor:isHome?"#2a2520":"#3a2520"}`,cursor:"pointer",borderRadius:6,transition:"all .15s",textAlign:"center"}}>
-                    <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,color:isActive?divColor:isHome?"#c8c0b0":"#888",marginBottom:4}}>{t.label}</div>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:isHome?divColor+"aa":"#6a4030",marginBottom:isActive?4:0}}>
-                      {isHome ? "● Default" : "○ Other div."}
-                    </div>
-                    <div style={{fontSize:10,color:"#555"}}>{t.desc}</div>
-                    {isActive && <div style={{fontSize:10,color:divColor,marginTop:4,fontWeight:600}}>ACTIVE</div>}
-                  </button>
-                );
-              })}
-            </div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,marginBottom:4}}>Set Till Number</div>
+            <div style={{fontSize:12,color:"#555",marginBottom:20}}>Enter the BT till number you are working on</div>
+            <input className="inp" placeholder="e.g. 14" defaultValue={activeTill||""} id="till-input"
+              style={{textAlign:"center",fontSize:24,fontFamily:"'Playfair Display',serif",color:divColor,marginBottom:16}} autoFocus />
+            <button className="btn btn-main" style={{width:"100%",marginBottom:10}} onClick={()=>{
+              const val = document.getElementById("till-input").value.trim();
+              if (!val) return;
+              setActiveTill(val); setTillPickerOpen(false); showToast(`Till set to ${val}`);
+            }}>Confirm</button>
             <button className="btn btn-ghost" style={{width:"100%"}} onClick={()=>setTillPickerOpen(false)}>Cancel</button>
           </div>
         </div>
@@ -1575,16 +1599,10 @@ export default function App() {
       {/* Header */}
       <header style={{background:"#0a0908",borderBottom:`2px solid ${div.dim}`,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52,position:"sticky",top:0,zIndex:200}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {(currentUser?.role==="manager"||currentUser?.role==="supervisor") ? (<div style={{display:"flex",gap:4}}>{[{id:"womens",label:"Women's",color:DIVISIONS[0].color},{id:"mens",label:"Men's",color:DIVISIONS[1].color},{id:"combined",label:"Combined",color:"#a0a0a0"}].map(t=>(<button key={t.id} onClick={()=>setDivision(t.id)} style={{padding:"5px 12px",fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:"pointer",borderRadius:4,border:`1.5px solid ${division===t.id?t.color:"#2a2520"}`,background:division===t.id?t.color+"22":"transparent",color:division===t.id?t.color:"#555"}}>{t.label}</button>))}</div>) : (<span style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:divColor,fontWeight:700}}>{divLabel}</span>)}
+          {(currentUser?.role==="manager"||currentUser?.role==="supervisor") ? (<div style={{display:"flex",gap:4}}>{[{id:"womens",label:"Women's",color:DIVISIONS[0].color},{id:"mens",label:"Men's",color:DIVISIONS[1].color}].map(t=>(<button key={t.id} onClick={()=>setDivision(t.id)} style={{padding:"5px 12px",fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:"pointer",borderRadius:4,border:`1.5px solid ${division===t.id?t.color:"#2a2520"}`,background:division===t.id?t.color+"22":"transparent",color:division===t.id?t.color:"#555"}}>{t.label}</button>))}</div>) : (<span style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:divColor,fontWeight:700}}>{divLabel}</span>)}
           {lowStock.length>0&&<span style={{fontSize:10,color:"#e07070",fontWeight:700,background:"#3a1e1e",padding:"2px 7px",borderRadius:3}}>⚠ {lowStock.length} low</span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={()=>setTillPickerOpen(true)}
-            style={{display:"flex",alignItems:"center",gap:4,background:divColor+"18",border:`1px solid ${divColor}44`,borderRadius:6,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit"}}>
-            <span style={{fontSize:11,color:divColor,fontWeight:700}}>TILL</span>
-            <span style={{fontFamily:"'Playfair Display',serif",fontSize:15,color:divColor,fontWeight:700,marginLeft:2}}>{activeTill}</span>
-            <span style={{fontSize:10,color:divColor+"88",marginLeft:2}}>▾</span>
-          </button>
           <button onClick={()=>{setCurrentUser(null);setDivision(null);setActiveTill(null);}}
             style={{background:"none",border:"1px solid #2a2520",color:"#555",padding:"6px 12px",fontSize:12,cursor:"pointer",borderRadius:6,fontFamily:"inherit",fontWeight:600}}>
             ✕
@@ -1752,9 +1770,9 @@ export default function App() {
                       {/* Active till indicator */}
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid #1e1c1a"}}>
                         <div style={{fontSize:11,color:"#555"}}>Recording to</div>
-                        <button onClick={()=>setTillPickerOpen(true)} style={{display:"flex",alignItems:"center",gap:8,background:divColor+"18",border:`1px solid ${divColor}55`,borderRadius:4,padding:"5px 10px",cursor:"pointer",fontFamily:"inherit"}}>
-                          <span style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:divColor,fontWeight:700}}>{activeTill}</span>
-                          <span style={{fontSize:10,color:divColor+"88"}}>CHANGE ▾</span>
+                        <button onClick={()=>setTillPickerOpen(true)} style={{display:"flex",alignItems:"center",gap:8,background:activeTill?divColor+"18":"#3a1e1e",border:`1px solid ${activeTill?divColor+"55":"#e0707055"}`,borderRadius:4,padding:"5px 10px",cursor:"pointer",fontFamily:"inherit"}}>
+                          <span style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:activeTill?divColor:"#e07070",fontWeight:700}}>{activeTill||"Set Till"}</span>
+                          <span style={{fontSize:10,color:(activeTill?divColor:"#e07070")+"88"}}>{activeTill?"CHANGE ▾":"▾"}</span>
                         </button>
                       </div>
                       <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -1894,53 +1912,12 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Stats at bottom */}
-                {(()=>{
-                  const g=todayGoals(), rev=todaySales.reduce((t,s)=>t+s.total,0), units=todaySales.reduce((t,s)=>t+s.qty,0);
-                  const rp=Math.min(100,g.revenue>0?(rev/g.revenue)*100:0), up=Math.min(100,g.units>0?(units/g.units)*100:0);
-                  return (
-                    <div style={{marginTop:24}}>
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:12}}>
-                        {[
-                          {label:"My Sales Today",   value:mySales.length,                                   color:divColor},
-                          {label:"My Revenue",       value:fmt(mySales.reduce((t,s)=>t+s.total,0)),         color:divColor},
-                          {label:"Team Sales Today", value:todaySales.length,                                color:"#888"},
-                        ].map(({label,value,color})=>(
-                          <div key={label} className="card" style={{padding:"14px 16px"}}>
-                            <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:6}}>{label}</div>
-                            <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,color}}>{value}</div>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,cursor:"pointer"}} onClick={()=>setScreen("goals")}>
-                        {[{label:"Revenue",val:fmt(rev),target:fmt(g.revenue),pct:rp,done:rev>=g.revenue},{label:"Units",val:units,target:`${g.units} units`,pct:up,done:units>=g.units}].map(({label,val,target,pct,done})=>(
-                          <div key={label} style={{background:"#111009",border:`1px solid ${done?"#3a6a4066":"#1e1c1a"}`,borderRadius:6,padding:"12px 14px"}}>
-                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                              <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:done?"#6ea870":"#666"}}>{label}{done&&" ✓"}</span>
-                              <span style={{fontSize:11,color:done?"#6ea870":divColor,fontWeight:600}}>{val} <span style={{color:"#444",fontWeight:400}}>/ {target}</span></span>
-                            </div>
-                            <div style={{background:"#0a0908",borderRadius:3,height:4,overflow:"hidden"}}>
-                              <div style={{height:"100%",width:`${pct}%`,background:done?"#6ea870":divColor,borderRadius:3,transition:"width .4s"}} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
+
               </div>
             )}
             </div>) : (
-              /* ── MANAGER VIEW — Sales with Combined + Division tabs ─────── */
+              /* ── MANAGER VIEW — Sales ─────── */
               (()=>{
-                const wSales=allSales.womens??[], mSales=allSales.mens??[];
-                const wToday=wSales.filter(s=>new Date(s.date).toDateString()===new Date().toDateString());
-                const mToday=mSales.filter(s=>new Date(s.date).toDateString()===new Date().toDateString());
-                const wRev=wToday.reduce((t,s)=>t+s.total,0), mRev=mToday.reduce((t,s)=>t+s.total,0);
-                const wUnits=wToday.reduce((t,s)=>t+s.qty,0), mUnits=mToday.reduce((t,s)=>t+s.qty,0);
-                const wGoal=allGoals?.womens?.[getWeekKey()]?.[getDayName()]??DEFAULT_WEEKLY_GOALS.womens[getDayName()];
-                const mGoal=allGoals?.mens?.[getWeekKey()]?.[getDayName()]??DEFAULT_WEEKLY_GOALS.mens[getDayName()];
-
                 const SalesTable = ({rows, dc}) => rows.length===0
                   ? <div style={{textAlign:"center",padding:"32px 16px",color:"#333",fontSize:13}}>No sales recorded</div>
                   : <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
@@ -1986,90 +1963,63 @@ export default function App() {
 
                 return (
                   <div>
-                    {/* Combined view */}
-                    {(division==="womens"?false:division==="mens"?false:true)&&(
-                      <div>
-                        {/* Side by side */}
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
-                          {[{div:DIVISIONS[0],rev:wRev,units:wUnits,goal:wGoal,count:wToday.length},{div:DIVISIONS[1],rev:mRev,units:mUnits,goal:mGoal,count:mToday.length}].map(({div:d,rev,units,goal,count})=>(
-                            <div key={d.id} style={{background:"#111009",border:`1.5px solid ${d.dim}`,borderRadius:8,padding:16}}>
-                              <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:d.color,marginBottom:12}}>{d.label}</div>
-                              {[{label:"Revenue",val:fmt(rev),target:fmt(goal.revenue),pct:Math.min(100,goal.revenue>0?(rev/goal.revenue)*100:0)},
-                                {label:"Units",val:units,target:`${goal.units} target`,pct:Math.min(100,goal.units>0?(units/goal.units)*100:0)}].map(({label,val,target,pct})=>(
-                                <div key={label} style={{marginBottom:10}}>
-                                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                                    <span style={{fontSize:10,color:"#666",fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase"}}>{label}</span>
-                                    <span style={{fontSize:11,color:d.color,fontWeight:600}}>{val}<span style={{color:"#444",fontWeight:400,fontSize:10}}> / {target}</span></span>
-                                  </div>
-                                  <div style={{background:"#0a0908",borderRadius:3,height:4,overflow:"hidden"}}>
-                                    <div style={{height:"100%",width:`${pct}%`,background:pct>=100?"#6ea870":d.color,borderRadius:3,transition:"width .5s"}} />
-                                  </div>
-                                </div>
-                              ))}
-                              <div style={{fontSize:11,color:"#555",marginTop:10,paddingTop:8,borderTop:"1px solid #1e1c1a"}}>{count} transactions today</div>
-                            </div>
-                          ))}
-                        </div>
-                        {/* Combined totals */}
-                        <div className="card" style={{padding:"14px 20px",marginBottom:20,display:"flex",justifyContent:"space-around",flexWrap:"wrap",gap:12}}>
-                          {[{label:"Combined Revenue",val:fmt(wRev+mRev)},{label:"Combined Units",val:wUnits+mUnits},{label:"Total Transactions",val:wToday.length+mToday.length}].map(({label,val})=>(
-                            <div key={label} style={{textAlign:"center"}}>
-                              <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:4}}>{label}</div>
-                              <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"#f0e8d8"}}>{val}</div>
-                            </div>
-                          ))}
-                        </div>
-                        {/* Staff breakdown */}
-                        <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:8}}>Staff Today — Both Concessions</div>
-                        <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
-                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
-                            <thead>
-                              <tr style={{background:"#111009",borderBottom:"2px solid #c8a96e44"}}>
-                                {["Staff","622 WOMEN","637 MEN","Total"].map(h=>(
-                                  <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"#c8a96e",whiteSpace:"nowrap"}}>{h}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {staff.map((s,i)=>{
-                                const all=[...wToday,...mToday].filter(x=>x.staffId===s.id);
-                                const wR=wToday.filter(x=>x.staffId===s.id).reduce((t,x)=>t+x.total,0);
-                                const mR=mToday.filter(x=>x.staffId===s.id).reduce((t,x)=>t+x.total,0);
-                                if(!all.length) return null;
-                                return (
-                                  <tr key={s.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
-                                    <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{s.name}</td>
-                                    <td style={{padding:"10px 12px",color:wR>0?DIVISIONS[0].color:"#333",fontFamily:"'Playfair Display',serif",fontSize:13}}>{wR>0?fmt(wR):"—"}</td>
-                                    <td style={{padding:"10px 12px",color:mR>0?DIVISIONS[1].color:"#333",fontFamily:"'Playfair Display',serif",fontSize:13}}>{mR>0?fmt(mR):"—"}</td>
-                                    <td style={{padding:"10px 12px",fontFamily:"'Playfair Display',serif",fontSize:14,color:"#f0e8d8",fontWeight:700}}>{fmt(all.reduce((t,x)=>t+x.total,0))}</td>
+                    <SalesTable rows={todaySales} dc={divColor} />
+
+                    {/* ── Refunds & Exchanges (manager inline) ── */}
+                    {(()=>{
+                      const refRows = refunds;
+                      const dc = divColor;
+                      return refRows.length===0 ? null : (
+                        <div style={{marginTop:32}}>
+                          <div style={{fontSize:12,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:12,paddingTop:20,borderTop:"1px solid #1a1714"}}>Refunds &amp; Exchanges</div>
+                          <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
+                              <thead>
+                                <tr style={{background:"#111009",borderBottom:`2px solid ${dc}44`}}>
+                                  {["Type","Style Name","Code","Colour","Size","Price","Reason","Staff","Till","Date"].map(h=>(
+                                    <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:dc,whiteSpace:"nowrap"}}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {refRows.map((r,i)=>(
+                                  <tr key={r.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
+                                    <td style={{padding:"10px 12px"}}><span className={`chip ${r.type==="refund"?"chip-red":"chip-blue"}`}>{r.type}</span></td>
+                                    <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{r.productName||"—"}</td>
+                                    <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{r.sku||"—"}</td>
+                                    <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{r.colour||"—"}</td>
+                                    <td style={{padding:"10px 12px",textAlign:"center"}}>{r.size?<span style={{background:dc+"22",color:dc,fontWeight:700,padding:"2px 8px",borderRadius:3,fontSize:11}}>{r.size}</span>:<span style={{color:"#333"}}>—</span>}</td>
+                                    <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{r.unitPrice?fmt(r.unitPrice):"—"}</td>
+                                    <td style={{padding:"10px 12px",color:"#888",fontSize:11}}>{r.reason||"—"}</td>
+                                    <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{r.staffName}</td>
+                                    <td style={{padding:"10px 12px",color:dc,fontWeight:600}}>{r.tillNo||"—"}</td>
+                                    <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDT(r.date)}</td>
                                   </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
-                    {/* 622 Women only */}
-                    {division==="womens"&&(
-                      <div>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                          <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555"}}>622 WOMEN — Today</div>
-                          <div style={{fontSize:11,color:"#555"}}>{wToday.length} sales · {fmt(wRev)}</div>
+                    {/* ── Unassigned Sales (manager inline) ── */}
+                    {unassignedSales.length>0&&(
+                      <div style={{marginTop:32}}>
+                        <div style={{fontSize:12,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"#e07070",marginBottom:12,paddingTop:20,borderTop:"1px solid #1a1714"}}>
+                          Unassigned Sales <span style={{background:"#3a1e1e",color:"#e07070",fontSize:10,padding:"2px 8px",borderRadius:3,marginLeft:6}}>{unassignedSales.length}</span>
                         </div>
-                        <SalesTable rows={wToday} dc={DIVISIONS[0].color} />
-                      </div>
-                    )}
-
-                    {/* 637 Men only */}
-                    {division==="mens"&&(
-                      <div>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                          <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555"}}>637 MEN — Today</div>
-                          <div style={{fontSize:11,color:"#555"}}>{mToday.length} sales · {fmt(mRev)}</div>
+                        <div className="card" style={{overflow:"hidden"}}>
+                          {unassignedSales.map(s=>(
+                            <AssignRow key={s.id} sale={s} staff={staff} divColor={divColor} fmt={fmt}
+                              onAssign={(staffId)=>{
+                                const found = staff.find(x=>x.id===staffId);
+                                if (!found) return;
+                                setSales(p=>p.map(x=>x.id===s.id?{...x,staffId:found.id,staffName:found.name,isUnassigned:false}:x));
+                                showToast(`Assigned to ${found.name}`);
+                              }} />
+                          ))}
                         </div>
-                        <SalesTable rows={mToday} dc={DIVISIONS[1].color} />
                       </div>
                     )}
                   </div>
@@ -2211,18 +2161,18 @@ export default function App() {
                 <div style={{display:"flex",flexDirection:"column",gap:12}}>
                   <div><label className="label">Style Name *</label>
                     <input className="inp" placeholder="e.g. JAPAN" value={refForm.style} onChange={e=>setRefForm(f=>({...f,style:e.target.value}))} /></div>
-                  <div><label className="label">Style Code / Colour</label>
+                  <div><label className="label">Style Code / Colour *</label>
                     <div style={{display:"flex",alignItems:"center",background:"#161412",border:"1px solid #2a2520",borderRadius:4,overflow:"hidden"}}>
-                      <input placeholder="" value={refForm.code} maxLength={5} onChange={e=>setRefForm(f=>({...f,code:e.target.value.slice(0,5)}))}
+                      <input placeholder="Code" value={refForm.code} maxLength={5} onChange={e=>{const v=e.target.value.slice(0,5);setRefForm(f=>({...f,code:v}));if(v.length===5)document.getElementById("ref-colour")?.focus();}}
                         style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                       <span style={{color:"#444",fontSize:14,padding:"0 4px"}}>/</span>
-                      <input placeholder="" value={refForm.colour} maxLength={5} onChange={e=>setRefForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
+                      <input id="ref-colour" placeholder="Colour" value={refForm.colour} maxLength={5} onChange={e=>setRefForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
                         style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                     </div>
                   </div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
-                  <div><label className="label">Size</label>
+                  <div><label className="label">Size *</label>
                     <select className="inp" value={refForm.size} onChange={e=>setRefForm(f=>({...f,size:e.target.value}))}>
                       <option value="">— Size —</option>
                       {SHOE_SIZES.map(s=><option key={s} value={s}>{s}</option>)}
@@ -2247,12 +2197,12 @@ export default function App() {
                     <div style={{display:"flex",flexDirection:"column",gap:12}}>
                       <div><label className="label">Style Name</label>
                         <input className="inp" placeholder="e.g. JAPAN" value={refForm.exchangeStyle} onChange={e=>setRefForm(f=>({...f,exchangeStyle:e.target.value}))} style={{padding:"7px 10px",fontSize:12}} /></div>
-                      <div><label className="label">Style Code / Colour</label>
+                      <div><label className="label">Style Code / Colour *</label>
                         <div style={{display:"flex",alignItems:"center",background:"#161412",border:"1px solid #2a2520",borderRadius:4,overflow:"hidden"}}>
-                          <input placeholder="" value={refForm.exchangeCode} maxLength={5} onChange={e=>setRefForm(f=>({...f,exchangeCode:e.target.value.slice(0,5)}))}
+                          <input placeholder="Code" value={refForm.exchangeCode} maxLength={5} onChange={e=>{const v=e.target.value.slice(0,5);setRefForm(f=>({...f,exchangeCode:v}));if(v.length===5)document.getElementById("ref-ex-colour")?.focus();}}
                             style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                           <span style={{color:"#444",fontSize:14,padding:"0 4px"}}>/</span>
-                          <input placeholder="" value={refForm.exchangeColour} maxLength={5} onChange={e=>setRefForm(f=>({...f,exchangeColour:e.target.value.slice(0,5)}))}
+                          <input id="ref-ex-colour" placeholder="Colour" value={refForm.exchangeColour} maxLength={5} onChange={e=>setRefForm(f=>({...f,exchangeColour:e.target.value.slice(0,5)}))}
                             style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                         </div>
                       </div>
@@ -2268,6 +2218,13 @@ export default function App() {
                   </>
                 )}
 
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:"#0a0908",border:"1px solid #1e1c1a",borderRadius:4}}>
+                  <span style={{fontSize:14}}>🕐</span>
+                  <div>
+                    <div style={{fontSize:11,color:"#555"}}>Date &amp; time automatically recorded on submission</div>
+                    <div style={{fontSize:12,color:divColor,fontWeight:600,marginTop:1}}>{new Date().toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})} · {new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>
+                  </div>
+                </div>
                 <button className="btn btn-main" style={{width:"100%",padding:13,marginTop:4}} onClick={recordRefund}>
                   Confirm {refForm.type==="refund"?"Refund":"Exchange"}
                 </button>
@@ -2356,12 +2313,12 @@ export default function App() {
                     <div style={{display:"flex",flexDirection:"column",gap:12}}>
                       <div><label className="label">Style Name *</label>
                         <input className="inp" placeholder="e.g. JAPAN" value={loanForm.style} onChange={e=>setLoanForm(f=>({...f,style:e.target.value}))} /></div>
-                      <div><label className="label">Style Code / Colour</label>
+                      <div><label className="label">Style Code / Colour *</label>
                         <div style={{display:"flex",alignItems:"center",background:"#161412",border:"1px solid #2a2520",borderRadius:4,overflow:"hidden"}}>
-                          <input placeholder="" value={loanForm.code} maxLength={5} onChange={e=>setLoanForm(f=>({...f,code:e.target.value.slice(0,5)}))}
+                          <input placeholder="Code" value={loanForm.code} maxLength={5} onChange={e=>{const v=e.target.value.slice(0,5);setLoanForm(f=>({...f,code:v}));if(v.length===5)document.getElementById("loan-colour")?.focus();}}
                             style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                           <span style={{color:"#444",fontSize:14,padding:"0 4px"}}>/</span>
-                          <input placeholder="" value={loanForm.colour} maxLength={5} onChange={e=>setLoanForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
+                          <input id="loan-colour" placeholder="Colour" value={loanForm.colour} maxLength={5} onChange={e=>setLoanForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
                             style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                         </div>
                       </div>
@@ -2380,9 +2337,12 @@ export default function App() {
                       {SHOE_SIZES.map(s=><option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
-                  <div><label className="label">Location / Purpose</label>
+                  <div><label className="label">Location / Purpose *</label>
                     <input className="inp" placeholder="e.g. Window Mannequin A" value={loanForm.location} onChange={e=>setLoanForm(f=>({...f,location:e.target.value}))} />
                   </div>
+                </div>
+                <div><label className="label">Requested By *</label>
+                  <input className="inp" placeholder="Full name of person requesting the stock" value={loanForm.requestedBy} onChange={e=>setLoanForm(f=>({...f,requestedBy:e.target.value}))} />
                 </div>
                 <div><label className="label">Note</label>
                   <input className="inp" placeholder="Optional" value={loanForm.note} onChange={e=>setLoanForm(f=>({...f,note:e.target.value}))} />
@@ -2410,12 +2370,12 @@ export default function App() {
                     <div style={{display:"flex",flexDirection:"column",gap:12}}>
                       <div><label className="label">Style Name *</label>
                         <input className="inp" placeholder="e.g. JAPAN" value={psForm.style} onChange={e=>setPsForm(f=>({...f,style:e.target.value}))} /></div>
-                      <div><label className="label">Style Code / Colour</label>
+                      <div><label className="label">Style Code / Colour *</label>
                         <div style={{display:"flex",alignItems:"center",background:"#161412",border:"1px solid #2a2520",borderRadius:4,overflow:"hidden"}}>
-                          <input placeholder="" value={psForm.code} maxLength={5} onChange={e=>setPsForm(f=>({...f,code:e.target.value.slice(0,5)}))}
+                          <input placeholder="Code" value={psForm.code} maxLength={5} onChange={e=>{const v=e.target.value.slice(0,5);setPsForm(f=>({...f,code:v}));if(v.length===5)document.getElementById("ps-colour")?.focus();}}
                             style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                           <span style={{color:"#444",fontSize:14,padding:"0 4px"}}>/</span>
-                          <input placeholder="" value={psForm.colour} maxLength={5} onChange={e=>setPsForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
+                          <input id="ps-colour" placeholder="Colour" value={psForm.colour} maxLength={5} onChange={e=>setPsForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
                             style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                         </div>
                       </div>
@@ -2497,37 +2457,117 @@ export default function App() {
             </div>) : (
               <div>
                 <div className="section-title">{divLabel} — Stock on Loan</div>
-                <div className="section-sub">Read-only view of all active and returned loans</div>
-                {loans.length===0 ? (
-                  <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No loans recorded</div>
-                ) : (
-                  <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
+                <div className="section-sub">Issue loans and manage active display &amp; personal shopper loans</div>
+
+                {/* Active Display Loans */}
+                <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:10}}>Active Loans <span style={{color:divColor}}>{openLoans.length}</span></div>
+                {openLoans.length===0 ? <div style={{color:"#333",fontSize:13,padding:"16px 0",marginBottom:16}}>No active loans</div> : (
+                  <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a",marginBottom:24}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
                       <thead>
                         <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
-                          {["Status","Style Name","Code","Colour","Size","Location","Staff","Date","Time"].map(h=>(
+                          {["Style Name","Code","Colour","Size","Qty","Location","Requested By","Staff","Out Since","Duration",""].map(h=>(
                             <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {loans.map((l,i)=>(
+                        {openLoans.map((l,i)=>(
                           <tr key={l.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
-                            <td style={{padding:"10px 12px"}}>
-                              <span className={`chip ${l.returned?"chip-green":"chip-grey"}`}>{l.returned?"Returned":"Active"}</span>
-                            </td>
                             <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{l.productName||l.style||"—"}</td>
                             <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{l.sku||"—"}</td>
                             <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{l.colour||"—"}</td>
                             <td style={{padding:"10px 12px",textAlign:"center"}}>
                               {l.size?<span style={{background:divColor+"22",color:divColor,fontWeight:700,padding:"2px 8px",borderRadius:3,fontSize:11}}>{l.size}</span>:<span style={{color:"#333"}}>—</span>}
                             </td>
+                            <td style={{padding:"10px 12px",color:"#c0b8a8"}}>{l.qty}</td>
                             <td style={{padding:"10px 12px",color:"#888"}}>{l.location||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#f0e8d8",fontWeight:600,whiteSpace:"nowrap"}}>{l.requestedBy||"—"}</td>
                             <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{l.staffName}</td>
-                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(l.date)}</td>
-                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtTime(l.date)}</td>
+                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(l.date)} {fmtTime(l.date)}</td>
+                            <td style={{padding:"10px 12px",color:"#c8a040",fontSize:11,whiteSpace:"nowrap"}}>{loanDuration(l.date)}</td>
+                            <td style={{padding:"10px 12px"}}>
+                              <button onClick={()=>returnLoan(l)} style={{background:"#161412",border:`1px solid ${divColor}44`,color:divColor,padding:"5px 12px",cursor:"pointer",borderRadius:4,fontFamily:"inherit",fontSize:11,fontWeight:600}}>Return</button>
+                            </td>
                           </tr>
                         ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Returned Display Loans */}
+                <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:10}}>Returned <span style={{color:"#444"}}>{loans.filter(l=>l.returned).length}</span></div>
+                {loans.filter(l=>l.returned).length===0 ? <div style={{color:"#333",fontSize:13,padding:"16px 0",marginBottom:24}}>No returned loans</div> : (
+                  <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a",opacity:0.7,marginBottom:24}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
+                      <thead>
+                        <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
+                          {["Style Name","Code","Colour","Size","Location","Staff","Returned"].map(h=>(
+                            <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"#555",whiteSpace:"nowrap"}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loans.filter(l=>l.returned).map((l,i)=>(
+                          <tr key={l.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
+                            <td style={{padding:"10px 12px",color:"#666",fontWeight:600}}>{l.productName||l.style||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#555",fontFamily:"monospace",fontSize:11}}>{l.sku||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#555",fontFamily:"monospace",fontSize:11}}>{l.colour||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#555"}}>{l.size||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#555"}}>{l.location||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#666",whiteSpace:"nowrap"}}>{l.staffName}</td>
+                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{l.returnedDate?fmtDate(l.returnedDate):"—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Personal Shopper Loans */}
+                <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:10,paddingTop:24,borderTop:"1px solid #1e1c1a"}}>
+                  Personal Shopper Loans <span style={{color:divColor}}>{psLoans.length}</span>
+                </div>
+                {psLoans.length===0 ? <div style={{color:"#333",fontSize:13,padding:"16px 0"}}>No PS loans recorded</div> : (
+                  <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
+                      <thead>
+                        <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
+                          {["Status","Style Name","Code","Colour","Size","Shopper","Shopper ID","Issued By","Out Since","Outcome","Till / Location"].map(h=>(
+                            <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {psLoans.map((l,i)=>{
+                          const statusColor = l.status==="out"?"#c8a040":l.status==="sold"?"#6ea870":"#70a0c8";
+                          const statusLabel = l.status==="out"?"Out":l.status==="sold"?"Sold":"Returned";
+                          const outcome = l.eodResult;
+                          return (
+                            <tr key={l.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
+                              <td style={{padding:"10px 12px"}}>
+                                <span style={{background:statusColor+"22",color:statusColor,border:`1px solid ${statusColor}44`,padding:"2px 8px",borderRadius:3,fontSize:10,fontWeight:700}}>{statusLabel}</span>
+                              </td>
+                              <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{l.productName||l.style||"—"}</td>
+                              <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{l.sku||"—"}</td>
+                              <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{l.colour||"—"}</td>
+                              <td style={{padding:"10px 12px",textAlign:"center"}}>
+                                {l.size?<span style={{background:divColor+"22",color:divColor,fontWeight:700,padding:"2px 8px",borderRadius:3,fontSize:11}}>{l.size}</span>:<span style={{color:"#333"}}>—</span>}
+                              </td>
+                              <td style={{padding:"10px 12px",color:divColor,fontWeight:600}}>{l.shopperName}</td>
+                              <td style={{padding:"10px 12px",color:"#888",fontSize:11}}>{l.shopperId}</td>
+                              <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{l.staffName}</td>
+                              <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(l.date)} {fmtTime(l.date)}</td>
+                              <td style={{padding:"10px 12px",fontSize:11,color:outcome?.result==="sold"?"#6ea870":outcome?.result==="returned"?"#70a0c8":"#555"}}>
+                                {outcome ? (outcome.result==="sold"?"Sold":"Returned to stock") : (l.status==="out"?<button onClick={()=>{setEodLoan(l);setEodOutcome({result:"sold",tillNo:"",note:""}); }} style={{background:"#161412",border:`1px solid ${divColor}44`,color:divColor,padding:"4px 10px",cursor:"pointer",borderRadius:4,fontFamily:"inherit",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>Resolve ▸</button>:"—")}
+                              </td>
+                              <td style={{padding:"10px 12px",color:"#c0b8a8",fontSize:11,whiteSpace:"nowrap"}}>
+                                {outcome?.tillNo ? <span style={{color:divColor,fontWeight:600}}>Till {outcome.tillNo}</span> : l.status==="returned"?"Back to stock":"—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -2555,12 +2595,12 @@ export default function App() {
                     <div style={{display:"flex",flexDirection:"column",gap:12}}>
                       <div><label className="label">Style Name *</label>
                         <input className="inp" placeholder="e.g. JAPAN" value={faultyForm.style} onChange={e=>setFaultyForm(f=>({...f,style:e.target.value}))} /></div>
-                      <div><label className="label">Style Code / Colour</label>
+                      <div><label className="label">Style Code / Colour *</label>
                         <div style={{display:"flex",alignItems:"center",background:"#161412",border:"1px solid #2a2520",borderRadius:4,overflow:"hidden"}}>
-                          <input placeholder="" value={faultyForm.sku} maxLength={5} onChange={e=>setFaultyForm(f=>({...f,sku:e.target.value.slice(0,5)}))}
+                          <input placeholder="Code" value={faultyForm.sku} maxLength={5} onChange={e=>{const v=e.target.value.slice(0,5);setFaultyForm(f=>({...f,sku:v}));if(v.length===5)document.getElementById("faulty-colour")?.focus();}}
                             style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                           <span style={{color:"#444",fontSize:14,padding:"0 4px"}}>/</span>
-                          <input placeholder="" value={faultyForm.colour} maxLength={5} onChange={e=>setFaultyForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
+                          <input id="faulty-colour" placeholder="Colour" value={faultyForm.colour} maxLength={5} onChange={e=>setFaultyForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
                             style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"7px 10px",fontSize:12,fontFamily:"inherit",minWidth:0}} />
                         </div>
                       </div>
@@ -2706,7 +2746,7 @@ export default function App() {
                     <input className="inp" placeholder="e.g. JAPAN" value={oddForm.style} onChange={e=>setOddForm(f=>({...f,style:e.target.value}))} />
                   </div>
                   <div>
-                    <label className="label">Style Code / Colour</label>
+                    <label className="label">Style Code / Colour *</label>
                     <div style={{display:"flex",alignItems:"center",background:"#161412",border:"1px solid #2a2520",borderRadius:6,overflow:"hidden"}}>
                       <input placeholder="" value={oddForm.sku} maxLength={5}
                         onChange={e=>{const v=e.target.value.slice(0,5);setOddForm(f=>({...f,sku:v}));if(v.length===5)document.getElementById("odd-colour")?.focus();}}
@@ -2916,6 +2956,210 @@ export default function App() {
           </div>
         )}
 
+        {/* ═══ FAULTY & ODD SHOES — combined manager view ══════════════════════ */}
+        {safeScreen==="faultyodd"&&isPrivileged&&(
+          <div>
+            <div className="section-title">{divLabel} — Faulty &amp; Odd Shoes</div>
+            <div className="section-sub">Read-only view of all logged faulty items and odd pairs</div>
+
+            {/* Sub-tabs */}
+            <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a1714",marginBottom:20}}>
+              {[
+                {id:"faulty", label:`Faulty Items${faulty.length?` (${faulty.length})`:""}`},
+                {id:"odd",    label:`Odd Shoes${oddShoes.length?` (${oddShoes.length})`:""}`},
+              ].map(t=>{
+                const active = faultyOddTab===t.id;
+                return (
+                  <button key={t.id} onClick={()=>setFaultyOddTab(t.id)}
+                    style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${active?divColor:"transparent"}`,color:active?divColor:"#555",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .15s",whiteSpace:"nowrap"}}>
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Faulty Items tab */}
+            {faultyOddTab==="faulty"&&(
+              faulty.length===0 ? (
+                <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No faulty items recorded</div>
+              ) : (
+                <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
+                    <thead>
+                      <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
+                        {["Style Name","Code","Colour","Size","Fault Type","Description","Action","Staff","Date","Time"].map(h=>(
+                          <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {faulty.map((f2,i)=>(
+                        <tr key={f2.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
+                          <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{f2.style||"—"}</td>
+                          <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{f2.sku||"—"}</td>
+                          <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{f2.colour||"—"}</td>
+                          <td style={{padding:"10px 12px",textAlign:"center"}}>
+                            {f2.size?<span style={{background:divColor+"22",color:divColor,fontWeight:700,padding:"2px 8px",borderRadius:3,fontSize:11}}>{f2.size}</span>:<span style={{color:"#333"}}>—</span>}
+                          </td>
+                          <td style={{padding:"10px 12px",color:"#e07070",fontWeight:600,fontSize:11}}>{f2.faultType||"—"}</td>
+                          <td style={{padding:"10px 12px",color:"#888",fontSize:11}}>{f2.description||"—"}</td>
+                          <td style={{padding:"10px 12px"}}><span className="chip chip-red">{f2.action||"—"}</span></td>
+                          <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{f2.staffName}</td>
+                          <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(f2.date)}</td>
+                          <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtTime(f2.date)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+
+            {/* Odd Shoes tab */}
+            {faultyOddTab==="odd"&&(
+              oddShoes.length===0 ? (
+                <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No odd shoes recorded</div>
+              ) : (
+                <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
+                    <thead>
+                      <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
+                        {["Style Name","Code","Colour","Shoe 1","Shoe 2","Issue","Found By","Date","Time"].map(h=>(
+                          <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {oddShoes.map((o,i)=>{
+                        const isTwoSameFeet = o.shoe1.foot===o.shoe2.foot;
+                        return (
+                          <tr key={o.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
+                            <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{o.style||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{o.sku||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{o.colour||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#c0b8a8",fontSize:11,whiteSpace:"nowrap"}}>UK {o.shoe1.size} · {o.shoe1.foot}</td>
+                            <td style={{padding:"10px 12px",color:"#c0b8a8",fontSize:11,whiteSpace:"nowrap"}}>UK {o.shoe2.size} · {o.shoe2.foot}</td>
+                            <td style={{padding:"10px 12px"}}>
+                              {isTwoSameFeet
+                                ? <span style={{background:"#3a1e1e",color:"#e07070",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:3}}>Two {o.shoe1.foot}s</span>
+                                : <span style={{background:"#3a2e10",color:"#c8a040",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:3}}>Size mismatch</span>}
+                            </td>
+                            <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{o.foundByName||o.staffName}</td>
+                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(o.date)}</td>
+                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtTime(o.date)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </div>
+        )}
+
+        {/* ═══ FAULTY & ODD SHOES — combined manager view ══════════════════════ */}
+        {safeScreen==="faultyodd"&&isPrivileged&&(
+          <div>
+            <div className="section-title">{divLabel} — Faulty &amp; Odd Shoes</div>
+            <div className="section-sub">Read-only view of all logged faulty items and odd pairs</div>
+
+            {/* Sub-tabs */}
+            <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a1714",marginBottom:20}}>
+              {[
+                {id:"faulty", label:`Faulty Items${faulty.length?` (${faulty.length})`:""}`},
+                {id:"odd",    label:`Odd Shoes${oddShoes.length?` (${oddShoes.length})`:""}`},
+              ].map(t=>{
+                const active = faultyOddTab===t.id;
+                return (
+                  <button key={t.id} onClick={()=>setFaultyOddTab(t.id)}
+                    style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${active?divColor:"transparent"}`,color:active?divColor:"#555",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .15s",whiteSpace:"nowrap"}}>
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Faulty Items tab */}
+            {faultyOddTab==="faulty"&&(
+              faulty.length===0 ? (
+                <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No faulty items recorded</div>
+              ) : (
+                <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
+                    <thead>
+                      <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
+                        {["Style Name","Code","Colour","Size","Fault Type","Description","Action","Staff","Date","Time"].map(h=>(
+                          <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {faulty.map((f2,i)=>(
+                        <tr key={f2.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
+                          <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{f2.style||"—"}</td>
+                          <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{f2.sku||"—"}</td>
+                          <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{f2.colour||"—"}</td>
+                          <td style={{padding:"10px 12px",textAlign:"center"}}>
+                            {f2.size?<span style={{background:divColor+"22",color:divColor,fontWeight:700,padding:"2px 8px",borderRadius:3,fontSize:11}}>{f2.size}</span>:<span style={{color:"#333"}}>—</span>}
+                          </td>
+                          <td style={{padding:"10px 12px",color:"#e07070",fontWeight:600,fontSize:11}}>{f2.faultType||"—"}</td>
+                          <td style={{padding:"10px 12px",color:"#888",fontSize:11}}>{f2.description||"—"}</td>
+                          <td style={{padding:"10px 12px"}}><span className="chip chip-red">{f2.action||"—"}</span></td>
+                          <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{f2.staffName}</td>
+                          <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(f2.date)}</td>
+                          <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtTime(f2.date)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+
+            {/* Odd Shoes tab */}
+            {faultyOddTab==="odd"&&(
+              oddShoes.length===0 ? (
+                <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No odd shoes recorded</div>
+              ) : (
+                <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
+                    <thead>
+                      <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
+                        {["Style Name","Code","Colour","Shoe 1","Shoe 2","Issue","Found By","Date","Time"].map(h=>(
+                          <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {oddShoes.map((o,i)=>{
+                        const isTwoSameFeet = o.shoe1.foot===o.shoe2.foot;
+                        return (
+                          <tr key={o.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
+                            <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{o.style||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{o.sku||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{o.colour||"—"}</td>
+                            <td style={{padding:"10px 12px",color:"#c0b8a8",fontSize:11,whiteSpace:"nowrap"}}>UK {o.shoe1.size} · {o.shoe1.foot}</td>
+                            <td style={{padding:"10px 12px",color:"#c0b8a8",fontSize:11,whiteSpace:"nowrap"}}>UK {o.shoe2.size} · {o.shoe2.foot}</td>
+                            <td style={{padding:"10px 12px"}}>
+                              {isTwoSameFeet
+                                ? <span style={{background:"#3a1e1e",color:"#e07070",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:3}}>Two {o.shoe1.foot}s</span>
+                                : <span style={{background:"#3a2e10",color:"#c8a040",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:3}}>Size mismatch</span>}
+                            </td>
+                            <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{o.foundByName||o.staffName}</td>
+                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(o.date)}</td>
+                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtTime(o.date)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </div>
+        )}
+
         {/* ═══ ASSIGN SALES (manager only) ════════════════════════════════════ */}
         {safeScreen==="assign"&&isPrivileged&&(
           <div>
@@ -2954,7 +3198,7 @@ export default function App() {
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
                     <thead>
                       <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
-                        {["Style Name","Code","Colour","Size","Qty","Location","Staff","Out Since","Duration",""].map(h=>(
+                        {["Style Name","Code","Colour","Size","Qty","Location","Requested By","Staff","Out Since","Duration",""].map(h=>(
                           <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
                         ))}
                       </tr>
@@ -2970,6 +3214,7 @@ export default function App() {
                           </td>
                           <td style={{padding:"10px 12px",color:"#c0b8a8"}}>{l.qty}</td>
                           <td style={{padding:"10px 12px",color:"#888"}}>{l.location||"—"}</td>
+                          <td style={{padding:"10px 12px",color:"#f0e8d8",fontWeight:600,whiteSpace:"nowrap"}}>{l.requestedBy||"—"}</td>
                           <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{l.staffName}</td>
                           <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(l.date)} {fmtTime(l.date)}</td>
                           <td style={{padding:"10px 12px",color:"#c8a040",fontSize:11,whiteSpace:"nowrap"}}>{loanDuration(l.date)}</td>
@@ -3592,84 +3837,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ═══ COMBINED VIEW (manager only) ════════════════════════════════════ */}
-        {safeScreen==="combined"&&currentUser.role==="manager"&&(()=>{
-          const wSales=allSales.womens??[], mSales=allSales.mens??[];
-          const wToday=wSales.filter(s=>new Date(s.date).toDateString()===todayStr());
-          const mToday=mSales.filter(s=>new Date(s.date).toDateString()===todayStr());
-          const wRev=wToday.reduce((t,s)=>t+s.total,0), mRev=mToday.reduce((t,s)=>t+s.total,0);
-          const wUnits=wToday.reduce((t,s)=>t+s.qty,0), mUnits=mToday.reduce((t,s)=>t+s.qty,0);
-          const wGoal=allGoals?.womens?.[getWeekKey()]?.[getDayName()]??DEFAULT_WEEKLY_GOALS.womens[getDayName()];
-          const mGoal=allGoals?.mens?.[getWeekKey()]?.[getDayName()]??DEFAULT_WEEKLY_GOALS.mens[getDayName()];
-          return (
-            <div>
-              <div className="section-title">Combined View</div>
-              <div className="section-sub">Men's + Women's — manager overview</div>
-
-              {/* Side by side comparison */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:28}}>
-                {[{div:DIVISIONS[0],rev:wRev,units:wUnits,goal:wGoal,sales:wToday},{div:DIVISIONS[1],rev:mRev,units:mUnits,goal:mGoal,sales:mToday}].map(({div:d,rev,units,goal,sales:ds})=>(
-                  <div key={d.id} style={{background:"#111009",border:`1.5px solid ${d.dim}`,borderRadius:8,padding:20}}>
-                    <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:d.color,marginBottom:16}}>{d.label}</div>
-                    {[{label:"Revenue",val:fmt(rev),target:fmt(goal.revenue),pct:Math.min(100,goal.revenue>0?(rev/goal.revenue)*100:0)},
-                      {label:"Units",val:units,target:`${goal.units} target`,pct:Math.min(100,goal.units>0?(units/goal.units)*100:0)}].map(({label,val,target,pct})=>(
-                      <div key={label} style={{marginBottom:12}}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                          <span style={{fontSize:11,color:"#666",fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase"}}>{label}</span>
-                          <span style={{fontSize:12,color:d.color,fontWeight:600}}>{val} <span style={{color:"#444",fontWeight:400,fontSize:10}}>/ {target}</span></span>
-                        </div>
-                        <div style={{background:"#0a0908",borderRadius:3,height:5,overflow:"hidden"}}>
-                          <div style={{height:"100%",width:`${pct}%`,background:pct>=100?"#6ea870":d.color,borderRadius:3,transition:"width .5s"}} />
-                        </div>
-                      </div>
-                    ))}
-                    <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid #1e1c1a",fontSize:11,color:"#555"}}>{ds.length} transactions today</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Combined total */}
-              <div className="card" style={{padding:"18px 24px",marginBottom:24,display:"flex",justifyContent:"space-around",flexWrap:"wrap",gap:16}}>
-                {[{label:"Combined Revenue",val:fmt(wRev+mRev)},{label:"Combined Units",val:wUnits+mUnits},{label:"Combined Sales",val:wToday.length+mToday.length}].map(({label,val})=>(
-                  <div key={label} style={{textAlign:"center"}}>
-                    <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:6}}>{label}</div>
-                    <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,color:"#f0e8d8"}}>{val}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Staff breakdown across both */}
-              <div style={{fontSize:12,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:10}}>Staff — Today (All Concessions)</div>
-              <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
-                  <thead>
-                    <tr style={{background:"#111009",borderBottom:"2px solid #c8a96e44"}}>
-                      {["Staff","622 WOMEN","637 MEN","Total"].map(h=>(
-                        <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"#c8a96e",whiteSpace:"nowrap"}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {staff.map((s,i)=>{
-                      const ws=[...wToday,...mToday].filter(x=>x.staffId===s.id);
-                      const wOnlyRev=wToday.filter(x=>x.staffId===s.id).reduce((t,x)=>t+x.total,0);
-                      const mOnlyRev=mToday.filter(x=>x.staffId===s.id).reduce((t,x)=>t+x.total,0);
-                      if(!ws.length) return null;
-                      return(
-                        <tr key={s.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
-                          <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{s.name}</td>
-                          <td style={{padding:"10px 12px",color:wOnlyRev>0?DIVISIONS[0].color:"#333",fontFamily:"'Playfair Display',serif",fontSize:14}}>{wOnlyRev>0?fmt(wOnlyRev):"—"}</td>
-                          <td style={{padding:"10px 12px",color:mOnlyRev>0?DIVISIONS[1].color:"#333",fontFamily:"'Playfair Display',serif",fontSize:14}}>{mOnlyRev>0?fmt(mOnlyRev):"—"}</td>
-                          <td style={{padding:"10px 12px",fontFamily:"'Playfair Display',serif",fontSize:15,color:"#f0e8d8",fontWeight:700}}>{fmt(ws.reduce((t,x)=>t+x.total,0))}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })()}
 
         {/* ═══ AI HUB (manager only) ════════════════════════════════════════ */}
         {safeScreen==="ai" && currentUser.role==="manager" && (() => {
