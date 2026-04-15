@@ -153,53 +153,77 @@ function Scanner({ onDetected, onClose, divColor = "#c8a96e" }) {
 function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
   const videoRef   = useRef(null);
   const streamRef  = useRef(null);
-  const [status, setStatus] = useState("starting"); // starting | ready | scanning | done | error
+  const [status, setStatus] = useState("starting");
   const [errMsg,  setErrMsg]  = useState("");
 
+  // Start camera when video element is ready
+  const startCamera = (videoEl) => {
+    if (!videoEl || streamRef.current) return;
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+    }).then(stream => {
+      streamRef.current = stream;
+      videoEl.srcObject = stream;
+      videoEl.play().catch(()=>{});
+      setStatus("ready");
+    }).catch(e => {
+      const msg = String(e);
+      if (msg.includes("Permission") || msg.includes("NotAllowed")) {
+        setErrMsg("Camera permission denied — allow camera in your browser settings.");
+      } else if (msg.includes("NotFound") || msg.includes("device")) {
+        setErrMsg("No camera found on this device.");
+      } else {
+        setErrMsg("Camera error — try refreshing the page.");
+      }
+      setStatus("error");
+    });
+  };
+
   useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } })
-      .then(stream => {
-        streamRef.current = stream;
-        if (videoRef.current) { videoRef.current.srcObject = stream; }
-        setStatus("ready");
-      })
-      .catch(() => { setErrMsg("Camera permission denied — allow camera in your browser settings."); setStatus("error"); });
-    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); };
+    // If videoRef already set, start immediately
+    if (videoRef.current) startCamera(videoRef.current);
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+    };
   }, []);
 
   const capture = async () => {
     if (status !== "ready") return;
     setStatus("scanning");
     try {
-      // Capture frame from video
       const video = videoRef.current;
+      if (!video || !video.videoWidth) throw new Error("Video not ready");
+
       const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       canvas.getContext("2d").drawImage(video, 0, 0);
-      const imageData = canvas.toDataURL("image/jpeg", 0.9);
+      const imageData = canvas.toDataURL("image/jpeg", 0.92);
 
-      // Load Tesseract from CDN if needed
+      // Load Tesseract from CDN
       if (!window.Tesseract) {
         await new Promise((res, rej) => {
           const s = document.createElement("script");
           s.src = "https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js";
-          s.onload = res; s.onerror = rej;
+          s.onload = res;
+          s.onerror = () => rej(new Error("Tesseract failed to load"));
           document.head.appendChild(s);
         });
       }
 
-      // Run OCR
       const result = await window.Tesseract.recognize(imageData, "eng", { logger: () => {} });
       const text = result.data.text;
-
-      // Parse label fields
       const parsed = parseLabelText(text);
-      setStatus("done");
+
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-      onDetected(parsed, text);
+      setStatus("done");
+      onDetected(parsed);
     } catch (e) {
-      setErrMsg("OCR failed — try again with better lighting.");
+      console.error("OCR error:", e);
+      setErrMsg("OCR failed — try again with better lighting and hold steady.");
       setStatus("error");
     }
   };
@@ -208,79 +232,100 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
     const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
     let style = "", code = "", colour = "", size = "";
 
-    // Style name — look for ALL CAPS word(s) that aren't numbers/sizes
-    const styleMatch = lines.find(l => /^[A-Z][A-Z\s]{2,}$/.test(l) && !/SIZE|UK|EU|OFF|WHITE|BLACK|CORE|BROWN|GREY|BLUE|RED|GREEN|NAVY/.test(l));
-    if (styleMatch) style = styleMatch.trim();
-
-    // Style code — pattern like "302 - 40374" or "302-40374", extract last 5 digits
-    const codeMatch = text.match(/\d{3}[\s-]+(\d{5})/);
+    // Style code — "302 - 40374" → extract 5-digit part
+    const codeMatch = text.match(/\d{2,3}[\s\-]+(\d{5})/);
     if (codeMatch) code = codeMatch[1];
 
-    // Colour code — pattern like "17-886" or "17886"
-    const colourMatch = text.match(/\b(\d{2}[-\s]?\d{3})\b/);
-    if (colourMatch) colour = colourMatch[1].replace(/[-\s]/g, "");
+    // Colour code — "17-886" or "17 886"
+    const colourMatch = text.match(/\b(\d{2})[\s\-](\d{3})\b/);
+    if (colourMatch) colour = colourMatch[1] + colourMatch[2];
 
-    // UK Size — look for "UK Size: 11" or "UK Size 11"
-    const sizeMatch = text.match(/UK\s+Size[:\s]+(\d+\.?\d*)/i);
+    // UK Size — "UK Size: 11" or "UK Size 11"
+    const sizeMatch = text.match(/UK\s*Size[:\s]+(\d+\.?\d*)/i);
     if (sizeMatch) size = sizeMatch[1];
 
-    // Colour description (e.g. "OFF WHITE CORE BLACK") — lines after style name
+    // Style name — find ALL CAPS line that looks like a brand name
+    const skipWords = /^(UK|EU|SIZE|OFF|WHITE|BLACK|CORE|BROWN|GREY|BLUE|RED|GREEN|NAVY|TAN|NUDE)$/;
+    const styleMatch = lines.find(l =>
+      /^[A-Z][A-Z\s]{2,20}$/.test(l) &&
+      !skipWords.test(l.trim()) &&
+      !/\d/.test(l)
+    );
+    if (styleMatch) style = styleMatch.trim();
+
+    // Colour description (line after style name e.g. "OFF WHITE CORE BLACK")
     let colourDesc = "";
     const styleIdx = lines.findIndex(l => l === style);
-    if (styleIdx >= 0 && lines[styleIdx + 1]) {
-      const next = lines[styleIdx + 1];
-      if (/^[A-Z\s]+$/.test(next) && next.length > 3) colourDesc = next.trim();
+    if (styleIdx >= 0) {
+      const next = lines.slice(styleIdx + 1).find(l => /^[A-Z\s]+$/.test(l) && l.length > 3 && !/SIZE|UK|EU/.test(l));
+      if (next) colourDesc = next.trim();
     }
 
     return { style, code, colour: colour || colourDesc, size };
   };
 
+  const retry = () => {
+    streamRef.current = null;
+    setStatus("starting");
+    setErrMsg("");
+    setTimeout(() => { if (videoRef.current) startCamera(videoRef.current); }, 100);
+  };
+
   return (
     <div style={{position:"fixed",inset:0,zIndex:500,background:"#050505",display:"flex",flexDirection:"column",fontFamily:"'Outfit',sans-serif"}}>
-      <div style={{padding:"16px 20px",background:"#0f0f0f",borderBottom:"1px solid #1c1c1c",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <span style={{fontWeight:700,fontSize:15,letterSpacing:"0.04em",color:divColor}}>READ LABEL</span>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <div style={{padding:"16px 20px",background:"#0f0f0f",borderBottom:"1px solid #1c1c1c",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <span style={{fontWeight:700,fontSize:15,letterSpacing:"0.04em",color:divColor}}>📷 READ LABEL</span>
         <button onClick={onClose} style={{background:"none",border:"1px solid #333",color:"#777",cursor:"pointer",padding:"7px 16px",fontSize:12,fontFamily:"inherit",borderRadius:4}}>✕ Cancel</button>
       </div>
-      <div style={{flex:1,position:"relative",overflow:"hidden",background:"#000",display:"flex",alignItems:"center",justifyContent:"center"}}>
+
+      <div style={{flex:1,position:"relative",overflow:"hidden",background:"#111",display:"flex",alignItems:"center",justifyContent:"center"}}>
         {status==="error" ? (
           <div style={{textAlign:"center",color:"#e05555",padding:32}}>
             <div style={{fontSize:38,marginBottom:12}}>⚠</div>
-            <div style={{fontSize:13,lineHeight:1.7,maxWidth:280}}>{errMsg}</div>
-            <button onClick={()=>{setStatus("starting");setErrMsg("");}} style={{marginTop:20,background:divColor,color:"#000",border:"none",padding:"10px 28px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,borderRadius:4}}>Retry</button>
+            <div style={{fontSize:13,lineHeight:1.7,maxWidth:280,color:"#e05555"}}>{errMsg}</div>
+            <button onClick={retry} style={{marginTop:20,background:divColor,color:"#000",border:"none",padding:"10px 28px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,borderRadius:4}}>Try Again</button>
           </div>
+        ) : status==="starting" ? (
+          <div style={{color:"#555",fontSize:13}}>Starting camera…</div>
         ) : (
           <>
-            <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",height:"100%",objectFit:"cover"}} />
-            {/* Label outline guide */}
+            <video
+              ref={el => { videoRef.current = el; if (el && !streamRef.current) startCamera(el); }}
+              autoPlay playsInline muted
+              style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
+            />
             <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
-              <div style={{width:"75%",height:"55%",border:`2px solid ${divColor}`,borderRadius:8,boxShadow:`0 0 0 1000px rgba(0,0,0,0.45)`}} />
+              <div style={{width:"80%",height:"50%",border:`2px solid ${divColor}`,borderRadius:8,boxShadow:`0 0 0 9999px rgba(0,0,0,0.5)`}} />
             </div>
             {status==="scanning" && (
-              <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
-                <div style={{width:48,height:48,border:`4px solid ${divColor}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
-                <div style={{color:divColor,fontSize:13,fontWeight:600,letterSpacing:"0.08em"}}>READING LABEL...</div>
+              <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.65)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+                <div style={{width:44,height:44,border:`4px solid ${divColor}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
+                <div style={{color:divColor,fontSize:13,fontWeight:600,letterSpacing:"0.08em"}}>READING LABEL…</div>
+                <div style={{color:"#555",fontSize:11}}>This may take a few seconds</div>
               </div>
             )}
           </>
         )}
       </div>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      {(status==="ready" || status==="scanning") && (
-        <div style={{padding:16,background:"#0f0f0f",borderTop:"1px solid #1c1c1c"}}>
-          {status==="ready" && (
-            <>
-              <div style={{textAlign:"center",fontSize:11,color:"#555",letterSpacing:"0.08em",marginBottom:12}}>ALIGN LABEL WITHIN THE BOX</div>
-              <button onClick={capture}
-                style={{width:"100%",background:divColor,color:"#0e0c0a",border:"none",padding:"16px",fontSize:15,fontWeight:700,cursor:"pointer",borderRadius:6,fontFamily:"inherit",letterSpacing:"0.04em"}}>
-                📷 Capture &amp; Read
-              </button>
-            </>
-          )}
-          {status==="scanning" && (
-            <div style={{textAlign:"center",fontSize:12,color:"#555",padding:"8px 0"}}>Processing — this takes a few seconds…</div>
-          )}
-        </div>
-      )}
+
+      <div style={{padding:16,background:"#0f0f0f",borderTop:"1px solid #1c1c1c",flexShrink:0}}>
+        {status==="ready" && (
+          <>
+            <div style={{textAlign:"center",fontSize:11,color:"#555",letterSpacing:"0.08em",marginBottom:10,textTransform:"uppercase"}}>Align the label inside the box</div>
+            <button onClick={capture}
+              style={{width:"100%",background:divColor,color:"#0e0c0a",border:"none",padding:"16px",fontSize:15,fontWeight:700,cursor:"pointer",borderRadius:6,fontFamily:"inherit"}}>
+              📷 Capture &amp; Read
+            </button>
+          </>
+        )}
+        {status==="starting" && (
+          <div style={{textAlign:"center",color:"#444",fontSize:12,padding:"8px 0"}}>Requesting camera access…</div>
+        )}
+        {status==="scanning" && (
+          <div style={{textAlign:"center",color:"#555",fontSize:12,padding:"8px 0"}}>Processing image…</div>
+        )}
+      </div>
     </div>
   );
 }
