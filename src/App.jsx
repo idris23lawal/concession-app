@@ -156,15 +156,15 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
   const [status, setStatus] = useState("starting");
   const [errMsg,  setErrMsg]  = useState("");
 
-  // Start camera when video element is ready
-  const startCamera = (videoEl) => {
-    if (!videoEl || streamRef.current) return;
+  useEffect(() => {
     navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
     }).then(stream => {
       streamRef.current = stream;
-      videoEl.srcObject = stream;
-      videoEl.play().catch(()=>{});
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(()=>{});
+      }
       setStatus("ready");
     }).catch(e => {
       const msg = String(e);
@@ -177,11 +177,6 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
       }
       setStatus("error");
     });
-  };
-
-  useEffect(() => {
-    // If videoRef already set, start immediately
-    if (videoRef.current) startCamera(videoRef.current);
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
@@ -189,6 +184,14 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
       }
     };
   }, []);
+
+  // Attach stream to video element once both are ready
+  useEffect(() => {
+    if (status === "ready" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(()=>{});
+    }
+  }, [status]);
 
   const capture = async () => {
     if (status !== "ready") return;
@@ -265,44 +268,53 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
   };
 
   const retry = () => {
-    streamRef.current = null;
-    setStatus("starting");
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     setErrMsg("");
-    setTimeout(() => { if (videoRef.current) startCamera(videoRef.current); }, 100);
+    setStatus("starting");
+    navigator.mediaDevices.getUserMedia({ video: { facingMode:"environment" } })
+      .then(stream => {
+        streamRef.current = stream;
+        setStatus("ready");
+      })
+      .catch(() => { setErrMsg("Camera still not available."); setStatus("error"); });
   };
 
   return (
-    <div style={{position:"fixed",inset:0,zIndex:500,background:"#050505",display:"flex",flexDirection:"column",fontFamily:"'Outfit',sans-serif"}}>
+    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:500,background:"#050505",display:"flex",flexDirection:"column",fontFamily:"'Outfit',sans-serif"}}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <div style={{padding:"16px 20px",background:"#0f0f0f",borderBottom:"1px solid #1c1c1c",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
         <span style={{fontWeight:700,fontSize:15,letterSpacing:"0.04em",color:divColor}}>📷 READ LABEL</span>
-        <button onClick={onClose} style={{background:"none",border:"1px solid #333",color:"#777",cursor:"pointer",padding:"7px 16px",fontSize:12,fontFamily:"inherit",borderRadius:4}}>✕ Cancel</button>
+        <button onClick={onClose} style={{background:"none",border:"1px solid #333",color:"#aaa",cursor:"pointer",padding:"7px 16px",fontSize:13,fontFamily:"inherit",borderRadius:4}}>✕ Cancel</button>
       </div>
 
-      <div style={{flex:1,position:"relative",overflow:"hidden",background:"#111",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{flex:1,position:"relative",overflow:"hidden",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",minHeight:0}}>
         {status==="error" ? (
-          <div style={{textAlign:"center",color:"#e05555",padding:32}}>
+          <div style={{textAlign:"center",padding:32}}>
             <div style={{fontSize:38,marginBottom:12}}>⚠</div>
             <div style={{fontSize:13,lineHeight:1.7,maxWidth:280,color:"#e05555"}}>{errMsg}</div>
-            <button onClick={retry} style={{marginTop:20,background:divColor,color:"#000",border:"none",padding:"10px 28px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,borderRadius:4}}>Try Again</button>
+            <button onClick={retry} style={{marginTop:20,background:divColor,color:"#000",border:"none",padding:"12px 28px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,borderRadius:4}}>Try Again</button>
           </div>
         ) : status==="starting" ? (
-          <div style={{color:"#555",fontSize:13}}>Starting camera…</div>
+          <div style={{textAlign:"center",color:"#aaa",fontSize:14,padding:32}}>
+            <div style={{fontSize:32,marginBottom:12}}>📷</div>
+            <div>Starting camera…</div>
+            <div style={{fontSize:11,color:"#555",marginTop:8}}>Allow camera access if prompted</div>
+          </div>
         ) : (
           <>
             <video
-              ref={el => { videoRef.current = el; if (el && !streamRef.current) startCamera(el); }}
+              ref={videoRef}
               autoPlay playsInline muted
-              style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
+              style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"cover"}}
             />
-            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+            <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
               <div style={{width:"80%",height:"50%",border:`2px solid ${divColor}`,borderRadius:8,boxShadow:`0 0 0 9999px rgba(0,0,0,0.5)`}} />
             </div>
             {status==="scanning" && (
-              <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.65)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+              <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.65)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
                 <div style={{width:44,height:44,border:`4px solid ${divColor}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
                 <div style={{color:divColor,fontSize:13,fontWeight:600,letterSpacing:"0.08em"}}>READING LABEL…</div>
-                <div style={{color:"#555",fontSize:11}}>This may take a few seconds</div>
+                <div style={{color:"#888",fontSize:11}}>This may take a few seconds</div>
               </div>
             )}
           </>
@@ -312,7 +324,7 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
       <div style={{padding:16,background:"#0f0f0f",borderTop:"1px solid #1c1c1c",flexShrink:0}}>
         {status==="ready" && (
           <>
-            <div style={{textAlign:"center",fontSize:11,color:"#555",letterSpacing:"0.08em",marginBottom:10,textTransform:"uppercase"}}>Align the label inside the box</div>
+            <div style={{textAlign:"center",fontSize:11,color:"#888",letterSpacing:"0.08em",marginBottom:10,textTransform:"uppercase"}}>Align the label inside the box</div>
             <button onClick={capture}
               style={{width:"100%",background:divColor,color:"#0e0c0a",border:"none",padding:"16px",fontSize:15,fontWeight:700,cursor:"pointer",borderRadius:6,fontFamily:"inherit"}}>
               📷 Capture &amp; Read
@@ -320,10 +332,10 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
           </>
         )}
         {status==="starting" && (
-          <div style={{textAlign:"center",color:"#444",fontSize:12,padding:"8px 0"}}>Requesting camera access…</div>
+          <div style={{textAlign:"center",color:"#666",fontSize:12,padding:"8px 0"}}>Requesting camera access…</div>
         )}
         {status==="scanning" && (
-          <div style={{textAlign:"center",color:"#555",fontSize:12,padding:"8px 0"}}>Processing image…</div>
+          <div style={{textAlign:"center",color:"#666",fontSize:12,padding:"8px 0"}}>Processing image…</div>
         )}
       </div>
     </div>
