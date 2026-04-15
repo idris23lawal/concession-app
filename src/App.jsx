@@ -149,7 +149,143 @@ function Scanner({ onDetected, onClose, divColor = "#c8a96e" }) {
   );
 }
 
-// ─── Division Picker (shown after login) ───────────────────────────────────────
+// ─── Label OCR Scanner ─────────────────────────────────────────────────────────
+function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
+  const videoRef   = useRef(null);
+  const streamRef  = useRef(null);
+  const [status, setStatus] = useState("starting"); // starting | ready | scanning | done | error
+  const [errMsg,  setErrMsg]  = useState("");
+
+  useEffect(() => {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } })
+      .then(stream => {
+        streamRef.current = stream;
+        if (videoRef.current) { videoRef.current.srcObject = stream; }
+        setStatus("ready");
+      })
+      .catch(() => { setErrMsg("Camera permission denied — allow camera in your browser settings."); setStatus("error"); });
+    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); };
+  }, []);
+
+  const capture = async () => {
+    if (status !== "ready") return;
+    setStatus("scanning");
+    try {
+      // Capture frame from video
+      const video = videoRef.current;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      const imageData = canvas.toDataURL("image/jpeg", 0.9);
+
+      // Load Tesseract from CDN if needed
+      if (!window.Tesseract) {
+        await new Promise((res, rej) => {
+          const s = document.createElement("script");
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js";
+          s.onload = res; s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+
+      // Run OCR
+      const result = await window.Tesseract.recognize(imageData, "eng", { logger: () => {} });
+      const text = result.data.text;
+
+      // Parse label fields
+      const parsed = parseLabelText(text);
+      setStatus("done");
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+      onDetected(parsed, text);
+    } catch (e) {
+      setErrMsg("OCR failed — try again with better lighting.");
+      setStatus("error");
+    }
+  };
+
+  const parseLabelText = (text) => {
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    let style = "", code = "", colour = "", size = "";
+
+    // Style name — look for ALL CAPS word(s) that aren't numbers/sizes
+    const styleMatch = lines.find(l => /^[A-Z][A-Z\s]{2,}$/.test(l) && !/SIZE|UK|EU|OFF|WHITE|BLACK|CORE|BROWN|GREY|BLUE|RED|GREEN|NAVY/.test(l));
+    if (styleMatch) style = styleMatch.trim();
+
+    // Style code — pattern like "302 - 40374" or "302-40374", extract last 5 digits
+    const codeMatch = text.match(/\d{3}[\s-]+(\d{5})/);
+    if (codeMatch) code = codeMatch[1];
+
+    // Colour code — pattern like "17-886" or "17886"
+    const colourMatch = text.match(/\b(\d{2}[-\s]?\d{3})\b/);
+    if (colourMatch) colour = colourMatch[1].replace(/[-\s]/g, "");
+
+    // UK Size — look for "UK Size: 11" or "UK Size 11"
+    const sizeMatch = text.match(/UK\s+Size[:\s]+(\d+\.?\d*)/i);
+    if (sizeMatch) size = sizeMatch[1];
+
+    // Colour description (e.g. "OFF WHITE CORE BLACK") — lines after style name
+    let colourDesc = "";
+    const styleIdx = lines.findIndex(l => l === style);
+    if (styleIdx >= 0 && lines[styleIdx + 1]) {
+      const next = lines[styleIdx + 1];
+      if (/^[A-Z\s]+$/.test(next) && next.length > 3) colourDesc = next.trim();
+    }
+
+    return { style, code, colour: colour || colourDesc, size };
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:500,background:"#050505",display:"flex",flexDirection:"column",fontFamily:"'Outfit',sans-serif"}}>
+      <div style={{padding:"16px 20px",background:"#0f0f0f",borderBottom:"1px solid #1c1c1c",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontWeight:700,fontSize:15,letterSpacing:"0.04em",color:divColor}}>READ LABEL</span>
+        <button onClick={onClose} style={{background:"none",border:"1px solid #333",color:"#777",cursor:"pointer",padding:"7px 16px",fontSize:12,fontFamily:"inherit",borderRadius:4}}>✕ Cancel</button>
+      </div>
+      <div style={{flex:1,position:"relative",overflow:"hidden",background:"#000",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        {status==="error" ? (
+          <div style={{textAlign:"center",color:"#e05555",padding:32}}>
+            <div style={{fontSize:38,marginBottom:12}}>⚠</div>
+            <div style={{fontSize:13,lineHeight:1.7,maxWidth:280}}>{errMsg}</div>
+            <button onClick={()=>{setStatus("starting");setErrMsg("");}} style={{marginTop:20,background:divColor,color:"#000",border:"none",padding:"10px 28px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,borderRadius:4}}>Retry</button>
+          </div>
+        ) : (
+          <>
+            <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",height:"100%",objectFit:"cover"}} />
+            {/* Label outline guide */}
+            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+              <div style={{width:"75%",height:"55%",border:`2px solid ${divColor}`,borderRadius:8,boxShadow:`0 0 0 1000px rgba(0,0,0,0.45)`}} />
+            </div>
+            {status==="scanning" && (
+              <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+                <div style={{width:48,height:48,border:`4px solid ${divColor}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
+                <div style={{color:divColor,fontSize:13,fontWeight:600,letterSpacing:"0.08em"}}>READING LABEL...</div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      {(status==="ready" || status==="scanning") && (
+        <div style={{padding:16,background:"#0f0f0f",borderTop:"1px solid #1c1c1c"}}>
+          {status==="ready" && (
+            <>
+              <div style={{textAlign:"center",fontSize:11,color:"#555",letterSpacing:"0.08em",marginBottom:12}}>ALIGN LABEL WITHIN THE BOX</div>
+              <button onClick={capture}
+                style={{width:"100%",background:divColor,color:"#0e0c0a",border:"none",padding:"16px",fontSize:15,fontWeight:700,cursor:"pointer",borderRadius:6,fontFamily:"inherit",letterSpacing:"0.04em"}}>
+                📷 Capture &amp; Read
+              </button>
+            </>
+          )}
+          {status==="scanning" && (
+            <div style={{textAlign:"center",fontSize:12,color:"#555",padding:"8px 0"}}>Processing — this takes a few seconds…</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function DivisionPicker({ user, onPick }) {
   return (
     <div style={{minHeight:"100vh",background:"#0e0c0a",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Outfit',sans-serif",padding:20}}>
@@ -981,6 +1117,7 @@ export default function App() {
   const [tillPickerOpen, setTillPickerOpen] = useState(false);
   const [toast,          setToast]          = useState(null);
   const [scanner,        setScanner]        = useState(false);
+  const [labelScanner,   setLabelScanner]   = useState(null); // null or callback fn
   const [scanCallback,   setScanCallback]   = useState(null);
   const [goalsModal,     setGoalsModal]     = useState(false);
   const [editGoals,      setEditGoals]      = useState({});
@@ -1430,8 +1567,12 @@ export default function App() {
     {id:"sales",   label:"Sales"},
     ...(!isPrivileged ? [{id:"refunds", label:"Refunds & Exchanges"}] : []),
     {id:"loans",   label:isPrivileged?"Loan Management":"Stock on Loan"},
-    {id:"faulty",  label:`Faulty${faulty.filter(f=>f.status==="open").length?` (${faulty.filter(f=>f.status==="open").length})`:""}`},
-    {id:"odd",     label:`Odd Shoes${oddShoes.filter(o=>o.status==="logged").length?` (${oddShoes.filter(o=>o.status==="logged").length})`:""}`},
+    ...(!isPrivileged ? [
+      {id:"faulty",  label:`Faulty${faulty.filter(f=>f.status==="open").length?` (${faulty.filter(f=>f.status==="open").length})`:""}`},
+      {id:"odd",     label:`Odd Shoes${oddShoes.filter(o=>o.status==="logged").length?` (${oddShoes.filter(o=>o.status==="logged").length})`:""}`},
+    ] : [
+      {id:"faultyodd", label:`Faulty & Odd${(faulty.filter(f=>f.status==="open").length+oddShoes.filter(o=>o.status==="logged").length)>0?` (${faulty.filter(f=>f.status==="open").length+oddShoes.filter(o=>o.status==="logged").length})`:""}`},
+    ]),
     ...(isPrivileged ? [
       {id:"goals",    label:"Team Goal"},
       {id:"stock",    label:"Stock"},
@@ -1458,6 +1599,8 @@ export default function App() {
       )}
 
       {scanner && <Scanner onDetected={handleScan} onClose={()=>setScanner(false)} divColor={divColor} />}
+      {labelScanner && <LabelScanner divColor={divColor} onClose={()=>setLabelScanner(null)}
+        onDetected={(parsed) => { labelScanner(parsed); setLabelScanner(null); }} />}
 
       {/* ── New Barcode Registration Modal ─────────────────────────────────── */}
       {newBarcodeModal && (
@@ -2158,6 +2301,10 @@ export default function App() {
                   style={{display:"flex",alignItems:"center",gap:8,background:divColor+"18",border:`1px solid ${divColor}44`,borderRadius:4,padding:"8px 14px",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,color:divColor,marginBottom:6,width:"fit-content"}}>
                   <span style={{fontSize:16}}>▣</span> Scan Shoe Label
                 </button>
+                <button onClick={()=>setLabelScanner(p=>setRefForm(f=>({...f,style:p.style||f.style,code:(p.code||"").slice(0,5)||f.code,colour:(p.colour||"").slice(0,5)||f.colour,size:p.size||f.size})))}
+                  style={{display:"flex",alignItems:"center",gap:8,background:"#1a1a2a",border:"1px solid #3a3a6a",borderRadius:4,padding:"8px 14px",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,color:"#8888cc",marginBottom:6,width:"fit-content"}}>
+                  <span style={{fontSize:16}}>📷</span> Read Label
+                </button>
                 <div style={{display:"flex",flexDirection:"column",gap:12}}>
                   <div><label className="label">Style Name *</label>
                     <input className="inp" placeholder="e.g. JAPAN" value={refForm.style} onChange={e=>setRefForm(f=>({...f,style:e.target.value}))} /></div>
@@ -2193,6 +2340,10 @@ export default function App() {
                     <button onClick={()=>openRegistryScanner(p=>setRefForm(f=>({...f,exchangeStyle:p.name||p.style||"",exchangeCode:(p.sku||p.code||"").slice(0,5),exchangeColour:(p.colour||"").slice(0,5),exchangeSize:p.size||f.exchangeSize})))}
                       style={{display:"flex",alignItems:"center",gap:8,background:divColor+"18",border:`1px solid ${divColor}44`,borderRadius:4,padding:"8px 14px",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,color:divColor,marginBottom:6,width:"fit-content"}}>
                       <span style={{fontSize:16}}>▣</span> Scan Shoe Label
+                    </button>
+                    <button onClick={()=>setLabelScanner(p=>setRefForm(f=>({...f,exchangeStyle:p.style||f.exchangeStyle,exchangeCode:(p.code||"").slice(0,5)||f.exchangeCode,exchangeColour:(p.colour||"").slice(0,5)||f.exchangeColour,exchangeSize:p.size||f.exchangeSize})))}
+                      style={{display:"flex",alignItems:"center",gap:8,background:"#1a1a2a",border:"1px solid #3a3a6a",borderRadius:4,padding:"8px 14px",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,color:"#8888cc",marginBottom:6,width:"fit-content"}}>
+                      <span style={{fontSize:16}}>📷</span> Read Label
                     </button>
                     <div style={{display:"flex",flexDirection:"column",gap:12}}>
                       <div><label className="label">Style Name</label>
@@ -2308,6 +2459,10 @@ export default function App() {
                   style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:divColor,color:"#0e0c0a",border:"none",borderRadius:6,padding:"14px",cursor:"pointer",fontFamily:"inherit",fontSize:14,fontWeight:700,width:"100%"}}>
                   <span style={{fontSize:22}}>▣</span> Scan Shoe Label
                 </button>
+                <button onClick={()=>setLabelScanner(p=>setLoanForm(f=>({...f,style:p.style||f.style,code:(p.code||"").slice(0,5)||f.code,colour:(p.colour||"").slice(0,5)||f.colour,size:p.size||f.size})))}
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"#1a1a2a",border:"1px solid #3a3a6a",borderRadius:6,padding:"12px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,color:"#8888cc",width:"100%",marginTop:8}}>
+                  <span style={{fontSize:18}}>📷</span> Read Label
+                </button>
                 {/* Secondary: Manual */}
                   <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:10}}>
                     <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -2365,6 +2520,10 @@ export default function App() {
                 <button onClick={()=>openRegistryScanner(p=>setPsForm(f=>({...f,style:p.name||p.style||"",code:(p.sku||p.code||"").slice(0,5),colour:(p.colour||"").slice(0,5),size:p.size||f.size})))}
                   style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:divColor,color:"#0e0c0a",border:"none",borderRadius:6,padding:"14px",cursor:"pointer",fontFamily:"inherit",fontSize:14,fontWeight:700,width:"100%"}}>
                   <span style={{fontSize:22}}>▣</span> Scan Shoe Label
+                </button>
+                <button onClick={()=>setLabelScanner(p=>setPsForm(f=>({...f,style:p.style||f.style,code:(p.code||"").slice(0,5)||f.code,colour:(p.colour||"").slice(0,5)||f.colour,size:p.size||f.size})))}
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"#1a1a2a",border:"1px solid #3a3a6a",borderRadius:6,padding:"12px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,color:"#8888cc",width:"100%",marginTop:8}}>
+                  <span style={{fontSize:18}}>📷</span> Read Label
                 </button>
                   <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:10}}>
                     <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -2589,6 +2748,10 @@ export default function App() {
                 <button onClick={()=>openRegistryScanner(p=>setFaultyForm(f=>({...f,style:p.name||p.style||"",sku:(p.sku||p.code||"").slice(0,5),colour:(p.colour||"").slice(0,5),size:p.size||f.size})))}
                   style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:divColor,color:"#0e0c0a",border:"none",borderRadius:6,padding:"14px",cursor:"pointer",fontFamily:"inherit",fontSize:14,fontWeight:700,width:"100%"}}>
                   <span style={{fontSize:22}}>▣</span> Scan Shoe Label
+                </button>
+                <button onClick={()=>setLabelScanner(p=>setFaultyForm(f=>({...f,style:p.style||f.style,sku:(p.code||"").slice(0,5)||f.sku,colour:(p.colour||"").slice(0,5)||f.colour,size:p.size||f.size})))}
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"#1a1a2a",border:"1px solid #3a3a6a",borderRadius:6,padding:"12px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,color:"#8888cc",width:"100%",marginTop:8}}>
+                  <span style={{fontSize:18}}>📷</span> Read Label
                 </button>
                 {/* Secondary: Manual */}
                   <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:10}}>
@@ -3059,106 +3222,6 @@ export default function App() {
         )}
 
         {/* ═══ FAULTY & ODD SHOES — combined manager view ══════════════════════ */}
-        {safeScreen==="faultyodd"&&isPrivileged&&(
-          <div>
-            <div className="section-title">{divLabel} — Faulty &amp; Odd Shoes</div>
-            <div className="section-sub">Read-only view of all logged faulty items and odd pairs</div>
-
-            {/* Sub-tabs */}
-            <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a1714",marginBottom:20}}>
-              {[
-                {id:"faulty", label:`Faulty Items${faulty.length?` (${faulty.length})`:""}`},
-                {id:"odd",    label:`Odd Shoes${oddShoes.length?` (${oddShoes.length})`:""}`},
-              ].map(t=>{
-                const active = faultyOddTab===t.id;
-                return (
-                  <button key={t.id} onClick={()=>setFaultyOddTab(t.id)}
-                    style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${active?divColor:"transparent"}`,color:active?divColor:"#555",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .15s",whiteSpace:"nowrap"}}>
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Faulty Items tab */}
-            {faultyOddTab==="faulty"&&(
-              faulty.length===0 ? (
-                <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No faulty items recorded</div>
-              ) : (
-                <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
-                    <thead>
-                      <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
-                        {["Style Name","Code","Colour","Size","Fault Type","Description","Action","Staff","Date","Time"].map(h=>(
-                          <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {faulty.map((f2,i)=>(
-                        <tr key={f2.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
-                          <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{f2.style||"—"}</td>
-                          <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{f2.sku||"—"}</td>
-                          <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{f2.colour||"—"}</td>
-                          <td style={{padding:"10px 12px",textAlign:"center"}}>
-                            {f2.size?<span style={{background:divColor+"22",color:divColor,fontWeight:700,padding:"2px 8px",borderRadius:3,fontSize:11}}>{f2.size}</span>:<span style={{color:"#333"}}>—</span>}
-                          </td>
-                          <td style={{padding:"10px 12px",color:"#e07070",fontWeight:600,fontSize:11}}>{f2.faultType||"—"}</td>
-                          <td style={{padding:"10px 12px",color:"#888",fontSize:11}}>{f2.description||"—"}</td>
-                          <td style={{padding:"10px 12px"}}><span className="chip chip-red">{f2.action||"—"}</span></td>
-                          <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{f2.staffName}</td>
-                          <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(f2.date)}</td>
-                          <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtTime(f2.date)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            )}
-
-            {/* Odd Shoes tab */}
-            {faultyOddTab==="odd"&&(
-              oddShoes.length===0 ? (
-                <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No odd shoes recorded</div>
-              ) : (
-                <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
-                    <thead>
-                      <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
-                        {["Style Name","Code","Colour","Shoe 1","Shoe 2","Issue","Found By","Date","Time"].map(h=>(
-                          <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {oddShoes.map((o,i)=>{
-                        const isTwoSameFeet = o.shoe1.foot===o.shoe2.foot;
-                        return (
-                          <tr key={o.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
-                            <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{o.style||"—"}</td>
-                            <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{o.sku||"—"}</td>
-                            <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{o.colour||"—"}</td>
-                            <td style={{padding:"10px 12px",color:"#c0b8a8",fontSize:11,whiteSpace:"nowrap"}}>UK {o.shoe1.size} · {o.shoe1.foot}</td>
-                            <td style={{padding:"10px 12px",color:"#c0b8a8",fontSize:11,whiteSpace:"nowrap"}}>UK {o.shoe2.size} · {o.shoe2.foot}</td>
-                            <td style={{padding:"10px 12px"}}>
-                              {isTwoSameFeet
-                                ? <span style={{background:"#3a1e1e",color:"#e07070",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:3}}>Two {o.shoe1.foot}s</span>
-                                : <span style={{background:"#3a2e10",color:"#c8a040",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:3}}>Size mismatch</span>}
-                            </td>
-                            <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{o.foundByName||o.staffName}</td>
-                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtDate(o.date)}</td>
-                            <td style={{padding:"10px 12px",color:"#555",fontSize:11,whiteSpace:"nowrap"}}>{fmtTime(o.date)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            )}
-          </div>
-        )}
 
         {/* ═══ ASSIGN SALES (manager only) ════════════════════════════════════ */}
         {safeScreen==="assign"&&isPrivileged&&(
