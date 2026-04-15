@@ -123,8 +123,8 @@ function Scanner({ onDetected, onClose, divColor = "#c8a96e" }) {
   }, [onDetected]);
 
   return (
-    <div style={{position:"fixed",inset:0,zIndex:500,background:"#050505",display:"flex",flexDirection:"column",fontFamily:"'Outfit',sans-serif"}}>
-      <style>{`@keyframes sline{0%{top:8%}50%{top:82%}100%{top:8%}} @keyframes sblink{0%,100%{opacity:1}50%{opacity:.15}} #qr-scanner-box video{object-fit:cover!important;}`}</style>
+    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:500,background:"#050505",display:"flex",flexDirection:"column",fontFamily:"'Outfit',sans-serif"}}>
+      <style>{`@keyframes sline{0%{top:8%}50%{top:82%}100%{top:8%}} @keyframes sblink{0%,100%{opacity:1}50%{opacity:.15}} #qr-scanner-box video{object-fit:cover!important;width:100%!important;height:100%!important;} #qr-scanner-box{width:100%!important;height:100%!important;}`}</style>
       <div style={{padding:"16px 20px",background:"#0f0f0f",borderBottom:"1px solid #1c1c1c",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <span style={{fontWeight:700,fontSize:15,letterSpacing:"0.04em",color:divColor}}>SCAN BARCODE</span>
         <button onClick={onClose} style={{background:"none",border:"1px solid #333",color:"#777",cursor:"pointer",padding:"7px 16px",fontSize:12,fontFamily:"inherit",borderRadius:4}}>✕ Cancel</button>
@@ -157,9 +157,15 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
   const [errMsg,  setErrMsg]  = useState("");
 
   useEffect(() => {
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
-    }).then(stream => {
+    // Safari iOS requires exact:true for facingMode or it falls back to front camera
+    const constraints = {
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
+    navigator.mediaDevices.getUserMedia(constraints).then(stream => {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -271,7 +277,7 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     setErrMsg("");
     setStatus("starting");
-    navigator.mediaDevices.getUserMedia({ video: { facingMode:"environment" } })
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } })
       .then(stream => {
         streamRef.current = stream;
         setStatus("ready");
@@ -305,6 +311,8 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
             <video
               ref={videoRef}
               autoPlay playsInline muted
+              webkit-playsinline="true"
+              x-webkit-airplay="deny"
               style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"cover"}}
             />
             <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
