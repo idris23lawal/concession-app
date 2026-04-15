@@ -1919,6 +1919,13 @@ export default function App() {
                         </button>
                       </div>
                       <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                        {/* Read Label / Scan buttons */}
+                        <div style={{display:"flex",gap:8}}>
+                          <button onClick={()=>setLabelScanner(p=>setSaleForm(f=>({...f,style:p.style||f.style,extProductCode:(p.code||"").slice(0,5)||f.extProductCode,colour:(p.colour||"").slice(0,5)||f.colour,size:p.size||f.size})))}
+                            style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"#1a1a2a",border:"1px solid #3a3a6a",borderRadius:6,padding:"12px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,color:"#8888cc"}}>
+                            <span style={{fontSize:18}}>📷</span> Read Label
+                          </button>
+                        </div>
                         {/* Style Name — full width */}
                         <div>
                           <label className="label">Style Name *</label>
