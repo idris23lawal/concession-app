@@ -151,138 +151,63 @@ function Scanner({ onDetected, onClose, divColor = "#c8a96e" }) {
 
 // ─── Label OCR Scanner ─────────────────────────────────────────────────────────
 function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
-  const videoRef   = useRef(null);
-  const streamRef  = useRef(null);
-  const [status, setStatus] = useState("starting");
-  const [errMsg,  setErrMsg]  = useState("");
+  const [status, setStatus] = useState("idle");
+  const [errMsg, setErrMsg] = useState("");
+  const [preview, setPreview] = useState(null);
+  const fileRef = useRef(null);
 
-  useEffect(() => {
-    // Safari iOS requires exact:true for facingMode or it falls back to front camera
-    const constraints = {
-      video: {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    };
-    navigator.mediaDevices.getUserMedia(constraints).then(stream => {
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(()=>{});
-      }
-      setStatus("ready");
-    }).catch(e => {
-      const msg = String(e);
-      if (msg.includes("Permission") || msg.includes("NotAllowed")) {
-        setErrMsg("Camera permission denied — allow camera in your browser settings.");
-      } else if (msg.includes("NotFound") || msg.includes("device")) {
-        setErrMsg("No camera found on this device.");
-      } else {
-        setErrMsg("Camera error — try refreshing the page.");
-      }
-      setStatus("error");
-    });
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
-        streamRef.current = null;
-      }
-    };
-  }, []);
-
-  // Attach stream to video element once both are ready
-  useEffect(() => {
-    if (status === "ready" && videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch(()=>{});
+  const parseLabelText = (text) => {
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    let style = "", code = "", colour = "", size = "";
+    const codeMatch = text.match(/\d{2,3}[\s\-]+(\d{5})/);
+    if (codeMatch) code = codeMatch[1];
+    const colourMatch = text.match(/\b(\d{2})[\s\-](\d{3})\b/);
+    if (colourMatch) colour = colourMatch[1] + colourMatch[2];
+    const sizeMatch = text.match(/UK\s*Size[:\s]+(\d+\.?\d*)/i);
+    if (sizeMatch) size = sizeMatch[1];
+    const skipWords = /^(UK|EU|SIZE|OFF|WHITE|BLACK|CORE|BROWN|GREY|BLUE|RED|GREEN|NAVY|TAN|NUDE)$/;
+    const styleMatch = lines.find(l => /^[A-Z][A-Z\s]{2,20}$/.test(l) && !skipWords.test(l.trim()) && !/\d/.test(l));
+    if (styleMatch) style = styleMatch.trim();
+    const styleIdx = lines.findIndex(l => l === style);
+    let colourDesc = "";
+    if (styleIdx >= 0) {
+      const next = lines.slice(styleIdx + 1).find(l => /^[A-Z\s]+$/.test(l) && l.length > 3 && !/SIZE|UK|EU/.test(l));
+      if (next) colourDesc = next.trim();
     }
-  }, [status]);
+    return { style, code, colour: colour || colourDesc, size };
+  };
 
-  const capture = async () => {
-    if (status !== "ready") return;
+  const processImage = async (dataUrl) => {
     setStatus("scanning");
     try {
-      const video = videoRef.current;
-      if (!video || !video.videoWidth) throw new Error("Video not ready");
-
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d").drawImage(video, 0, 0);
-      const imageData = canvas.toDataURL("image/jpeg", 0.92);
-
-      // Load Tesseract from CDN
       if (!window.Tesseract) {
         await new Promise((res, rej) => {
           const s = document.createElement("script");
           s.src = "https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js";
           s.onload = res;
-          s.onerror = () => rej(new Error("Tesseract failed to load"));
+          s.onerror = () => rej(new Error("Failed to load OCR library"));
           document.head.appendChild(s);
         });
       }
-
-      const result = await window.Tesseract.recognize(imageData, "eng", { logger: () => {} });
-      const text = result.data.text;
-      const parsed = parseLabelText(text);
-
-      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+      const result = await window.Tesseract.recognize(dataUrl, "eng", { logger: () => {} });
+      const parsed = parseLabelText(result.data.text);
       setStatus("done");
       onDetected(parsed);
     } catch (e) {
-      console.error("OCR error:", e);
-      setErrMsg("OCR failed — try again with better lighting and hold steady.");
+      setErrMsg("Could not read the label — try again with better lighting.");
       setStatus("error");
     }
   };
 
-  const parseLabelText = (text) => {
-    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-    let style = "", code = "", colour = "", size = "";
-
-    // Style code — "302 - 40374" → extract 5-digit part
-    const codeMatch = text.match(/\d{2,3}[\s\-]+(\d{5})/);
-    if (codeMatch) code = codeMatch[1];
-
-    // Colour code — "17-886" or "17 886"
-    const colourMatch = text.match(/\b(\d{2})[\s\-](\d{3})\b/);
-    if (colourMatch) colour = colourMatch[1] + colourMatch[2];
-
-    // UK Size — "UK Size: 11" or "UK Size 11"
-    const sizeMatch = text.match(/UK\s*Size[:\s]+(\d+\.?\d*)/i);
-    if (sizeMatch) size = sizeMatch[1];
-
-    // Style name — find ALL CAPS line that looks like a brand name
-    const skipWords = /^(UK|EU|SIZE|OFF|WHITE|BLACK|CORE|BROWN|GREY|BLUE|RED|GREEN|NAVY|TAN|NUDE)$/;
-    const styleMatch = lines.find(l =>
-      /^[A-Z][A-Z\s]{2,20}$/.test(l) &&
-      !skipWords.test(l.trim()) &&
-      !/\d/.test(l)
-    );
-    if (styleMatch) style = styleMatch.trim();
-
-    // Colour description (line after style name e.g. "OFF WHITE CORE BLACK")
-    let colourDesc = "";
-    const styleIdx = lines.findIndex(l => l === style);
-    if (styleIdx >= 0) {
-      const next = lines.slice(styleIdx + 1).find(l => /^[A-Z\s]+$/.test(l) && l.length > 3 && !/SIZE|UK|EU/.test(l));
-      if (next) colourDesc = next.trim();
-    }
-
-    return { style, code, colour: colour || colourDesc, size };
-  };
-
-  const retry = () => {
-    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    setErrMsg("");
-    setStatus("starting");
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } })
-      .then(stream => {
-        streamRef.current = stream;
-        setStatus("ready");
-      })
-      .catch(() => { setErrMsg("Camera still not available."); setStatus("error"); });
+  const handleFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPreview(ev.target.result);
+      processImage(ev.target.result);
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -292,64 +217,52 @@ function LabelScanner({ onDetected, onClose, divColor = "#c8a96e" }) {
         <span style={{fontWeight:700,fontSize:15,letterSpacing:"0.04em",color:divColor}}>📷 READ LABEL</span>
         <button onClick={onClose} style={{background:"none",border:"1px solid #333",color:"#aaa",cursor:"pointer",padding:"7px 16px",fontSize:13,fontFamily:"inherit",borderRadius:4}}>✕ Cancel</button>
       </div>
-
-      <div style={{flex:1,position:"relative",overflow:"hidden",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",minHeight:0}}>
-        {status==="error" ? (
-          <div style={{textAlign:"center",padding:32}}>
-            <div style={{fontSize:38,marginBottom:12}}>⚠</div>
-            <div style={{fontSize:13,lineHeight:1.7,maxWidth:280,color:"#e05555"}}>{errMsg}</div>
-            <button onClick={retry} style={{marginTop:20,background:divColor,color:"#000",border:"none",padding:"12px 28px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,borderRadius:4}}>Try Again</button>
-          </div>
-        ) : status==="starting" ? (
-          <div style={{textAlign:"center",color:"#aaa",fontSize:14,padding:32}}>
-            <div style={{fontSize:32,marginBottom:12}}>📷</div>
-            <div>Starting camera…</div>
-            <div style={{fontSize:11,color:"#555",marginTop:8}}>Allow camera access if prompted</div>
-          </div>
-        ) : (
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,gap:20,overflowY:"auto"}}>
+        {status==="idle" && (
           <>
-            <video
-              ref={videoRef}
-              autoPlay playsInline muted
-              webkit-playsinline="true"
-              x-webkit-airplay="deny"
-              style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"cover"}}
-            />
-            <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
-              <div style={{width:"80%",height:"50%",border:`2px solid ${divColor}`,borderRadius:8,boxShadow:`0 0 0 9999px rgba(0,0,0,0.5)`}} />
+            <div style={{fontSize:64}}>🏷️</div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:"#f0e8d8",marginBottom:8}}>Point at Shoe Label</div>
+              <div style={{fontSize:13,color:"#888",lineHeight:1.6,maxWidth:260}}>Take a photo of the label — the app will read the style, code, colour and size automatically.</div>
             </div>
-            {status==="scanning" && (
-              <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.65)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
-                <div style={{width:44,height:44,border:`4px solid ${divColor}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
-                <div style={{color:divColor,fontSize:13,fontWeight:600,letterSpacing:"0.08em"}}>READING LABEL…</div>
-                <div style={{color:"#888",fontSize:11}}>This may take a few seconds</div>
-              </div>
-            )}
+            <button onClick={()=>fileRef.current&&fileRef.current.click()}
+              style={{background:divColor,color:"#0e0c0a",border:"none",padding:"16px 32px",fontSize:16,fontWeight:700,cursor:"pointer",borderRadius:8,fontFamily:"inherit",width:"100%",maxWidth:320}}>
+              📷 Take Photo
+            </button>
+            <div style={{fontSize:11,color:"#444",textAlign:"center"}}>Works on Chrome, Safari and all browsers</div>
+            <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{display:"none"}} />
           </>
         )}
-      </div>
-
-      <div style={{padding:16,background:"#0f0f0f",borderTop:"1px solid #1c1c1c",flexShrink:0}}>
-        {status==="ready" && (
+        {status==="scanning" && (
           <>
-            <div style={{textAlign:"center",fontSize:11,color:"#888",letterSpacing:"0.08em",marginBottom:10,textTransform:"uppercase"}}>Align the label inside the box</div>
-            <button onClick={capture}
-              style={{width:"100%",background:divColor,color:"#0e0c0a",border:"none",padding:"16px",fontSize:15,fontWeight:700,cursor:"pointer",borderRadius:6,fontFamily:"inherit"}}>
-              📷 Capture &amp; Read
+            {preview&&<img src={preview} style={{width:"100%",maxWidth:300,borderRadius:8,border:`1px solid ${divColor}44`,opacity:0.6}} alt="label" />}
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+              <div style={{width:44,height:44,border:`4px solid ${divColor}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
+              <div style={{color:divColor,fontSize:14,fontWeight:600}}>Reading label…</div>
+              <div style={{color:"#555",fontSize:12}}>First use downloads OCR library (~4MB)</div>
+            </div>
+          </>
+        )}
+        {status==="error" && (
+          <>
+            <div style={{fontSize:48}}>⚠️</div>
+            <div style={{textAlign:"center",color:"#e07070",fontSize:13,lineHeight:1.6,maxWidth:260}}>{errMsg}</div>
+            <button onClick={()=>{setStatus("idle");setPreview(null);setErrMsg("");}}
+              style={{background:divColor,color:"#0e0c0a",border:"none",padding:"14px 28px",fontSize:14,fontWeight:700,cursor:"pointer",borderRadius:6,fontFamily:"inherit"}}>
+              Try Again
             </button>
           </>
         )}
-        {status==="starting" && (
-          <div style={{textAlign:"center",color:"#666",fontSize:12,padding:"8px 0"}}>Requesting camera access…</div>
-        )}
-        {status==="scanning" && (
-          <div style={{textAlign:"center",color:"#666",fontSize:12,padding:"8px 0"}}>Processing image…</div>
+        {status==="done" && (
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:48,marginBottom:12}}>✅</div>
+            <div style={{color:"#6ea870",fontSize:16,fontWeight:600}}>Label read successfully</div>
+          </div>
         )}
       </div>
     </div>
   );
 }
-
 
 function DivisionPicker({ user, onPick }) {
   return (
@@ -932,7 +845,7 @@ function StaffDailyView({ allSales, allRefunds, allLoans, allPsLoans, allGoals, 
   const divObj  = DIVISIONS.find(d=>d.id===div);
   const divColor = divObj.color;
 
-  const todaySales   = (allSales[div]   ?? []).filter(s=>new Date(s.date).toDateString()===today);
+  const todaySales   = (allSales[div]   ?? []).filter(s=>new Date(s.date).toDateString()===today).sort((a,b)=>new Date(a.date)-new Date(b.date));
   const todayRefunds = (allRefunds[div] ?? []).filter(r=>new Date(r.date).toDateString()===today);
   const openLoans    = (allLoans[div]   ?? []).filter(l=>!l.returned);
   const openPS       = (allPsLoans[div] ?? []).filter(l=>l.status==="out");
@@ -1058,7 +971,9 @@ function StaffDailyView({ allSales, allRefunds, allLoans, allPsLoans, allGoals, 
                   </tbody>
                   <tfoot>
                     <tr style={{background:"#111009",borderTop:`2px solid ${divColor}44`}}>
-                      <td colSpan={7} style={{padding:"8px 10px",fontSize:10,color:"#555",fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase"}}>Day Total</td>
+                      <td colSpan={7} style={{padding:"8px 10px",fontSize:10,color:"#555",fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+                        Day Total<span style={{color:"#444",fontWeight:400,marginLeft:8,fontSize:9}}>/ {fmt(goal.revenue)} target</span>
+                      </td>
                       <td style={{padding:"8px 10px",fontFamily:"'Playfair Display',serif",fontSize:14,color:divColor,fontWeight:700}}>{fmt(totalRev)}</td>
                       <td/>
                     </tr>
@@ -1163,7 +1078,7 @@ export default function App() {
   // ── Till configuration ─────────────────────────────────────────────────────
   // Each till has an id, label, and which division it "belongs to" by default
   const divTills     = (d) => [];
-  const defaultTill  = (d) => null;
+  const defaultTill  = (d) => d === "womens" ? "71" : null;
 
   // Per-division data — stored as { womens: [...], mens: [...] }
   const [allProducts,   setAllProducts]   = useState(() => load("products",   SAMPLE_PRODUCTS));
@@ -1557,7 +1472,7 @@ export default function App() {
   };
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const todaySales   = sales.filter(s=>new Date(s.date).toDateString()===todayStr());
+  const todaySales   = sales.filter(s=>new Date(s.date).toDateString()===todayStr()).sort((a,b)=>new Date(a.date)-new Date(b.date));
   const mySales      = todaySales.filter(s=>s.staffId===currentUser?.id);
   const openPsLoans  = psLoans.filter(l=>l.status==="out");
   const openLoans    = loans.filter(l=>!l.returned);
@@ -2133,7 +2048,7 @@ export default function App() {
             </div>) : (
               /* ── MANAGER VIEW — Sales ─────── */
               (()=>{
-                const SalesTable = ({rows, dc}) => rows.length===0
+                const SalesTable = ({rows, dc, target}) => rows.length===0
                   ? <div style={{textAlign:"center",padding:"32px 16px",color:"#333",fontSize:13}}>No sales recorded</div>
                   : <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
@@ -2168,7 +2083,9 @@ export default function App() {
                         </tbody>
                         <tfoot>
                           <tr style={{background:"#111009",borderTop:`2px solid ${dc}44`}}>
-                            <td colSpan={7} style={{padding:"10px 12px",fontSize:11,color:"#555",fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase"}}>Day Total</td>
+                            <td colSpan={7} style={{padding:"10px 12px",fontSize:11,color:"#555",fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+                              Day Total{target&&<span style={{color:"#444",fontWeight:400,marginLeft:8,fontSize:10}}>/ {fmt(target)} target</span>}
+                            </td>
                             <td style={{padding:"10px 12px",fontFamily:"'Playfair Display',serif",fontSize:16,color:dc,fontWeight:700}}>{fmt(rows.reduce((t,s)=>t+s.total,0))}</td>
                             <td/>
                           </tr>
@@ -2178,7 +2095,7 @@ export default function App() {
 
                 return (
                   <div>
-                    <SalesTable rows={todaySales} dc={divColor} />
+                    <SalesTable rows={todaySales} dc={divColor} target={todayGoals().revenue} />
 
                     {/* ── Refunds & Exchanges (manager inline) ── */}
                     {(()=>{
