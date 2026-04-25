@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { syncSale } from './syncService';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const KEY = "concession_v3";
@@ -1346,6 +1347,7 @@ export default function App() {
       };
     });
     setSales(p=>[...newSales,...p]);
+newSales.forEach(sale => syncSale(sale));
     // Update scan log outcomes with style details from confirmed items
     setScanLog(p=>p.map(entry=>{
       const match = valid.find(i=>i.scanId===entry.id);
