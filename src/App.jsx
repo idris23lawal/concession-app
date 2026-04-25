@@ -1460,8 +1460,7 @@ syncLoan({id: Date.now().toString(), staffId: currentUser.id, staffName: current
     const exchangeProductName=type==="exchange"&&exchangeStyle?`${exchangeStyle.trim()}${exchangeColour?" ("+exchangeColour+")":""}`:null;
     setRefunds(p=>[{id:uid(),type,division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,unitPrice:parseFloat(origPrice)||0,tillNo,reason,origSaleId:"",date:new Date().toISOString(),exchangeProductName},...p]);
     setRefForm({type:"refund",style:"",code:"",colour:"",size:"",origPrice:"",tillNo:"",reason:"",exchangeStyle:"",exchangeCode:"",exchangeColour:"",exchangeSize:""});
-    syncRefund({id: Date.now().toString(), staffId: currentUser.id, staffName: currentUser.name, division: division, till: refForm.tillNo, items: [], total: parseFloat(refForm.origPrice)||0, reason: refForm.reason, timestamp: new Date().toISOString()});
-showToast(`${type==="refund"?"Refund":"Exchange"} recorded`);
+    showToast(`${type==="refund"?"Refund":"Exchange"} recorded`);
   };
 
   const recordReceive = () => {
