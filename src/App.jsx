@@ -1415,6 +1415,7 @@ newSales.forEach(sale => syncSale(sale));
     const productName=`${style.trim()}${colour?" ("+colour+")":""}`;
     setLoans(p=>[{id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,location:location||"Unspecified",note,requestedBy:requestedBy.trim(),date:new Date().toISOString(),returned:false},...p]);
     setLoanForm({style:"",code:"",colour:"",size:"",location:"",note:"",requestedBy:""});
+syncLoan({id: Date.now().toString(), staffId: currentUser.id, staffName: currentUser.name, division: division, till: activeTill, amount: 0, reason: loanForm.note, timestamp: new Date().toISOString()});
     showToast(`${productName} on loan`);
   };
 
@@ -1459,7 +1460,8 @@ newSales.forEach(sale => syncSale(sale));
     const exchangeProductName=type==="exchange"&&exchangeStyle?`${exchangeStyle.trim()}${exchangeColour?" ("+exchangeColour+")":""}`:null;
     setRefunds(p=>[{id:uid(),type,division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,unitPrice:parseFloat(origPrice)||0,tillNo,reason,origSaleId:"",date:new Date().toISOString(),exchangeProductName},...p]);
     setRefForm({type:"refund",style:"",code:"",colour:"",size:"",origPrice:"",tillNo:"",reason:"",exchangeStyle:"",exchangeCode:"",exchangeColour:"",exchangeSize:""});
-    showToast(`${type==="refund"?"Refund":"Exchange"} recorded`);
+    syncRefund({id: Date.now().toString(), staffId: currentUser.id, staffName: currentUser.name, division: division, till: refForm.tillNo, items: [], total: parseFloat(refForm.origPrice)||0, reason: refForm.reason, timestamp: new Date().toISOString()});
+showToast(`${type==="refund"?"Refund":"Exchange"} recorded`);
   };
 
   const recordReceive = () => {
