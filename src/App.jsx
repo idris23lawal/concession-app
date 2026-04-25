@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { syncSale } from './syncService';
+import { syncSale, syncLoan, syncRefund } from './syncService';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const KEY = "concession_v3";
