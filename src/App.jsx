@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { syncSale, syncLoan, syncRefund } from './syncService';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const KEY = "concession_v3";
@@ -306,9 +305,9 @@ function LoginScreen({ staff, onLogin, onQuickSale, onStaffView }) {
   return (
     <div style={{minHeight:"100vh",background:"#0e0c0a",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Outfit',sans-serif",padding:20}}>
       <div style={{width:"100%",maxWidth:380,textAlign:"center"}}>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,letterSpacing:"0.3em",color:"#888",textTransform:"uppercase",marginBottom:8}}>Company</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:34,color:"#f0e8d8",marginBottom:6}}>Concession</div>
-        <div style={{fontSize:12,color:"#555",marginBottom:8}}>Men's &amp; Women's Stock Manager</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,letterSpacing:"0.3em",color:"#888",textTransform:"uppercase",marginBottom:8}}>Offspring</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:34,color:"#f0e8d8",marginBottom:6}}>BT</div>
+        <div style={{fontSize:12,color:"#555",marginBottom:8}}>Brown Thomas Concession Manager</div>
         <div style={{width:40,height:1,background:"#555",margin:"0 auto 32px"}} />
 
         {/* Staff options — main box */}
@@ -1347,7 +1346,6 @@ export default function App() {
       };
     });
     setSales(p=>[...newSales,...p]);
-newSales.forEach(sale => syncSale(sale));
     // Update scan log outcomes with style details from confirmed items
     setScanLog(p=>p.map(entry=>{
       const match = valid.find(i=>i.scanId===entry.id);
@@ -1415,7 +1413,6 @@ newSales.forEach(sale => syncSale(sale));
     const productName=`${style.trim()}${colour?" ("+colour+")":""}`;
     setLoans(p=>[{id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,location:location||"Unspecified",note,requestedBy:requestedBy.trim(),date:new Date().toISOString(),returned:false},...p]);
     setLoanForm({style:"",code:"",colour:"",size:"",location:"",note:"",requestedBy:""});
-syncLoan({id: Date.now().toString(), staffId: currentUser.id, staffName: currentUser.name, division: division, till: activeTill, amount: 0, reason: loanForm.note, timestamp: new Date().toISOString()});
     showToast(`${productName} on loan`);
   };
 
@@ -3636,7 +3633,7 @@ syncLoan({id: Date.now().toString(), staffId: currentUser.id, staffName: current
 
             r += `${line}\n`;
             r += `Report generated: ${new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})} by ${currentUser.name} (${currentUser.id})\n`;
-            r += `Concession App — ${divLabel}`;
+            r += `Offspring BT — ${divLabel}`;
             return r;
           };
 
