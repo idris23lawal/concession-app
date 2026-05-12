@@ -1,5 +1,7 @@
 import { supabase } from './supabaseClient'
 
+// ── Upsert functions (write to Supabase) ────────────────────────────────────
+
 export async function syncSale(sale) {
   const { error } = await supabase.from('sales').upsert({
     id: sale.id,
@@ -74,4 +76,147 @@ export async function syncLoan(loan) {
     date: loan.date || new Date().toISOString()
   })
   if (error) console.error('Loan sync failed:', error.message)
+}
+
+// ── Convert Supabase row → app format ───────────────────────────────────────
+
+function rowToSale(row) {
+  return {
+    id: row.id,
+    division: row.division,
+    staffId: row.staff_id,
+    staffName: row.staff_name,
+    tillNo: row.till,
+    productId: row.product_id,
+    productName: row.product_name,
+    style: row.style,
+    productCode: row.product_code,
+    colour: row.colour,
+    size: row.size,
+    basePrice: row.base_price,
+    unitPrice: row.base_price,
+    total: row.total,
+    qty: row.qty,
+    discount: row.discount,
+    isExternal: row.is_external,
+    isUnassigned: row.is_unassigned,
+    extId: row.ext_id,
+    date: row.date,
+  }
+}
+
+function rowToRefund(row) {
+  return {
+    id: row.id,
+    division: row.division,
+    type: row.type,
+    staffId: row.staff_id,
+    staffName: row.staff_name,
+    tillNo: row.till_no,
+    productName: row.product_name,
+    sku: row.sku,
+    colour: row.colour,
+    size: row.size,
+    unitPrice: row.unit_price,
+    reason: row.reason,
+    exchangeStyle: row.exchange_style,
+    exchangeCode: row.exchange_code,
+    exchangeColour: row.exchange_colour,
+    exchangeSize: row.exchange_size,
+    date: row.date,
+  }
+}
+
+function rowToLoan(row) {
+  return {
+    id: row.id,
+    division: row.division,
+    type: row.type,
+    staffId: row.staff_id,
+    staffName: row.staff_name,
+    productId: row.product_id,
+    productName: row.product_name,
+    style: row.style,
+    sku: row.sku,
+    colour: row.colour,
+    size: row.size,
+    qty: row.qty,
+    location: row.location,
+    note: row.note,
+    requestedBy: row.requested_by,
+    returned: row.returned,
+    returnedDate: row.returned_date,
+    shopperName: row.shopper_name,
+    shopperId: row.shopper_id,
+    status: row.status,
+    eodResult: row.eod_result,
+    date: row.date,
+  }
+}
+
+// ── Fetch all data from Supabase ─────────────────────────────────────────────
+
+export async function fetchAllData() {
+  try {
+    const [salesRes, refundsRes, loansRes] = await Promise.all([
+      supabase.from('sales').select('*').order('date', { ascending: false }),
+      supabase.from('refunds').select('*').order('date', { ascending: false }),
+      supabase.from('loans').select('*').order('date', { ascending: false }),
+    ])
+
+    const sales = { womens: [], mens: [] }
+    const refunds = { womens: [], mens: [] }
+    const loans = { womens: [], mens: [] }
+    const psLoans = { womens: [], mens: [] }
+
+    if (!salesRes.error && salesRes.data) {
+      salesRes.data.forEach(row => {
+        const div = row.division === 'womens' ? 'womens' : 'mens'
+        sales[div].push(rowToSale(row))
+      })
+    }
+
+    if (!refundsRes.error && refundsRes.data) {
+      refundsRes.data.forEach(row => {
+        const div = row.division === 'womens' ? 'womens' : 'mens'
+        refunds[div].push(rowToRefund(row))
+      })
+    }
+
+    if (!loansRes.error && loansRes.data) {
+      loansRes.data.forEach(row => {
+        const div = row.division === 'womens' ? 'womens' : 'mens'
+        const loan = rowToLoan(row)
+        if (row.type === 'ps') {
+          psLoans[div].push(loan)
+        } else {
+          loans[div].push(loan)
+        }
+      })
+    }
+
+    return { sales, refunds, loans, psLoans }
+  } catch (e) {
+    console.error('fetchAllData failed:', e)
+    return null
+  }
+}
+
+// ── Real-time subscriptions ──────────────────────────────────────────────────
+
+export function subscribeToChanges({ onSale, onRefund, onLoan }) {
+  const channel = supabase
+    .channel('db-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, payload => {
+      if (payload.new) onSale(rowToSale(payload.new))
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'refunds' }, payload => {
+      if (payload.new) onRefund(rowToRefund(payload.new))
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'loans' }, payload => {
+      if (payload.new) onLoan(rowToLoan(payload.new))
+    })
+    .subscribe()
+
+  return () => supabase.removeChannel(channel)
 }

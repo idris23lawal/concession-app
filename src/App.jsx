@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { syncSale, syncRefund, syncLoan } from './syncService';
+import { syncSale, syncRefund, syncLoan, fetchAllData, subscribeToChanges } from './syncService';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const KEY = "concession_v3";
@@ -1151,10 +1151,60 @@ export default function App() {
 
   // Scanner library loaded on demand in Scanner component
 
-  // Persist
+  // Persist to localStorage
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify({products:allProducts,sales:allSales,loans:allLoans,psLoans:allPsLoans,refunds:allRefunds,deliveries:allDeliveries,goals:allGoals,faulty:allFaulty,oddShoes:allOddShoes,scanLog:allScanLog})); } catch {}
   }, [allProducts,allSales,allLoans,allPsLoans,allRefunds,allDeliveries,allGoals,allFaulty,allOddShoes,allScanLog]);
+
+  // Fetch from Supabase on load + subscribe to real-time changes
+  useEffect(() => {
+    // Fetch latest data from Supabase
+    fetchAllData().then(data => {
+      if (!data) return; // offline — keep localStorage data
+      setAllSales(data.sales);
+      setAllRefunds(data.refunds);
+      setAllLoans(data.loans);
+      setAllPsLoans(data.psLoans);
+    });
+
+    // Subscribe to real-time changes from other devices
+    const unsubscribe = subscribeToChanges({
+      onSale: (sale) => {
+        const div = sale.division === 'womens' ? 'womens' : 'mens';
+        setAllSales(p => {
+          const existing = p[div] ?? [];
+          const filtered = existing.filter(s => s.id !== sale.id);
+          return { ...p, [div]: [sale, ...filtered] };
+        });
+      },
+      onRefund: (refund) => {
+        const div = refund.division === 'womens' ? 'womens' : 'mens';
+        setAllRefunds(p => {
+          const existing = p[div] ?? [];
+          const filtered = existing.filter(r => r.id !== refund.id);
+          return { ...p, [div]: [refund, ...filtered] };
+        });
+      },
+      onLoan: (loan) => {
+        const div = loan.division === 'womens' ? 'womens' : 'mens';
+        if (loan.type === 'ps') {
+          setAllPsLoans(p => {
+            const existing = p[div] ?? [];
+            const filtered = existing.filter(l => l.id !== loan.id);
+            return { ...p, [div]: [loan, ...filtered] };
+          });
+        } else {
+          setAllLoans(p => {
+            const existing = p[div] ?? [];
+            const filtered = existing.filter(l => l.id !== loan.id);
+            return { ...p, [div]: [loan, ...filtered] };
+          });
+        }
+      },
+    });
+
+    return unsubscribe;
+  }, []);
 
   // ── Division-scoped helpers ────────────────────────────────────────────────
   const div       = DIVISIONS.find(d => d.id === division) ?? DIVISIONS[0];
@@ -3867,29 +3917,95 @@ export default function App() {
         {/* ═══ RECEIVE STOCK (manager) ══════════════════════════════════════════ */}
         {safeScreen==="receive"&&currentUser.role==="manager"&&(
           <div>
-            <div className="section-title">{divLabel} — Stock Received</div>
-            <div className="section-sub">Log of all deliveries received from head office</div>
+            <div className="section-title">{divLabel} — Delivery</div>
+            <div className="section-sub">Log new stock received from head office or supplier</div>
+
+            {/* Delivery form */}
+            <div className="card" style={{padding:20,marginBottom:24}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:divColor,marginBottom:16}}>New Delivery</div>
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div>
+                  <label className="label">Style Name *</label>
+                  <input className="inp" placeholder="e.g. JAPAN" value={recvForm.styleName||""} onChange={e=>setRecvForm(f=>({...f,styleName:e.target.value}))} />
+                </div>
+                <div>
+                  <label className="label">Style Code / Colour *</label>
+                  <div style={{display:"flex",alignItems:"center",background:"#161412",border:"1px solid #2a2520",borderRadius:8,overflow:"hidden"}}>
+                    <input placeholder="Code" value={recvForm.code||""} maxLength={5}
+                      onChange={e=>{const v=e.target.value.slice(0,5);setRecvForm(f=>({...f,code:v}));if(v.length===5)document.getElementById("recv-colour")?.focus();}}
+                      style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"14px",fontSize:16,fontFamily:"inherit",minWidth:0}} />
+                    <span style={{color:"#444",fontSize:14,padding:"0 4px"}}>/</span>
+                    <input id="recv-colour" placeholder="Colour" value={recvForm.colour||""} maxLength={5}
+                      onChange={e=>setRecvForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
+                      style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"14px",fontSize:16,fontFamily:"inherit",minWidth:0}} />
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div>
+                    <label className="label">Size *</label>
+                    <select className="inp" value={recvForm.size||""} onChange={e=>setRecvForm(f=>({...f,size:e.target.value}))}>
+                      <option value="">— Size —</option>
+                      {SHOE_SIZES.map(s=><option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Quantity *</label>
+                    <input className="inp" type="number" min="1" placeholder="e.g. 6" value={recvForm.qty||""} onChange={e=>setRecvForm(f=>({...f,qty:e.target.value}))} />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Supplier / Note</label>
+                  <input className="inp" placeholder="e.g. Head office delivery, PO #1234" value={recvForm.note||""} onChange={e=>setRecvForm(f=>({...f,note:e.target.value}))} />
+                </div>
+                <button className="btn btn-main" style={{width:"100%",padding:14,marginTop:4}} onClick={()=>{
+                  const {styleName,code,colour,size,qty,note}=recvForm;
+                  if (!styleName?.trim()) return showToast("Enter style name","err");
+                  if (!code?.trim()) return showToast("Enter style code","err");
+                  if (!colour?.trim()) return showToast("Enter colour","err");
+                  if (!size) return showToast("Select a size","err");
+                  const q=parseInt(qty);
+                  if (!q||q<=0) return showToast("Enter valid quantity","err");
+                  const productName=`${styleName.trim()} (${colour})`;
+                  setDeliveries(p=>[{id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,
+                    productName,styleName:styleName.trim(),code:code.trim(),colour:colour.trim(),size,
+                    qty:q,note:note||"",date:new Date().toISOString()},...p]);
+                  setRecvForm({styleName:"",code:"",colour:"",size:"",qty:"",note:""});
+                  showToast(`+${q} ${productName} logged`);
+                }}>
+                  ✓ Log Delivery
+                </button>
+              </div>
+            </div>
+
+            {/* Delivery log */}
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:10}}>
+              Delivery History <span style={{color:divColor}}>{deliveries.length}</span>
+            </div>
             {deliveries.length===0 ? (
-              <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No deliveries recorded yet</div>
+              <div style={{textAlign:"center",padding:"32px 16px",color:"#333",fontSize:13}}>No deliveries recorded yet</div>
             ) : (
               <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
                   <thead>
                     <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
-                      {["Product","Qty","Staff","Note","Date","Time"].map(h=>(
+                      {["Style","Code","Colour","Size","Qty","Note","Logged By","Date"].map(h=>(
                         <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {deliveries.slice(0,20).map((d,i)=>(
+                    {deliveries.map((d,i)=>(
                       <tr key={d.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
-                        <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{d.productName}</td>
+                        <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{d.styleName||d.productName}</td>
+                        <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{d.code||"—"}</td>
+                        <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{d.colour||"—"}</td>
+                        <td style={{padding:"10px 12px",textAlign:"center"}}>
+                          {d.size?<span style={{background:divColor+"22",color:divColor,fontWeight:700,padding:"2px 8px",borderRadius:3,fontSize:11}}>{d.size}</span>:<span style={{color:"#333"}}>—</span>}
+                        </td>
                         <td style={{padding:"10px 12px",fontFamily:"'Playfair Display',serif",fontSize:16,color:"#6ea870",fontWeight:700}}>+{d.qty}</td>
-                        <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{d.staffName}</td>
                         <td style={{padding:"10px 12px",color:"#666",fontSize:11}}>{d.note||"—"}</td>
-                        <td style={{padding:"10px 12px",color:"#555",whiteSpace:"nowrap",fontSize:11}}>{fmtDate(d.date)}</td>
-                        <td style={{padding:"10px 12px",color:"#555",whiteSpace:"nowrap",fontSize:11}}>{fmtTime(d.date)}</td>
+                        <td style={{padding:"10px 12px",color:"#c0b8a8",whiteSpace:"nowrap"}}>{d.staffName}</td>
+                        <td style={{padding:"10px 12px",color:"#555",whiteSpace:"nowrap",fontSize:11}}>{fmtDate(d.date)} {fmtTime(d.date)}</td>
                       </tr>
                     ))}
                   </tbody>
