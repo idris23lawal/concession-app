@@ -308,7 +308,7 @@ function LoginScreen({ staff, onLogin, onQuickSale, onStaffView }) {
       <div style={{width:"100%",maxWidth:380,textAlign:"center"}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,letterSpacing:"0.3em",color:"#888",textTransform:"uppercase",marginBottom:8}}>Offspring</div>
         <div style={{fontFamily:"'Playfair Display',serif",fontSize:34,color:"#f0e8d8",marginBottom:6}}>BT</div>
-        <div style={{fontSize:12,color:"#555",marginBottom:8}}>Brown Thomas Concession Manager</div>
+        <div style={{fontSize:12,color:"#555",marginBottom:8}}>Brown Thomas Concession</div>
         <div style={{width:40,height:1,background:"#555",margin:"0 auto 32px"}} />
 
         {/* Staff options — main box */}
@@ -3969,6 +3969,13 @@ export default function App() {
                   setDeliveries(p=>[{id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,
                     productName,styleName:styleName.trim(),code:code.trim(),colour:colour.trim(),size,
                     qty:q,note:note||"",date:new Date().toISOString()},...p]);
+                  // Also add to stock inventory
+                  const existing = products.find(p=>p.sku===code.trim()&&p.colour===colour.trim()&&p.size===size);
+                  if (existing) {
+                    setProducts(p=>p.map(x=>x.id===existing.id?{...x,stock:(x.stock||0)+q}:x));
+                  } else {
+                    setProducts(p=>[...p,{id:uid(),name:styleName.trim(),sku:code.trim(),colour:colour.trim(),size,price:0,stock:q,onLoan:0,barcode:"",division}]);
+                  }
                   setRecvForm({styleName:"",code:"",colour:"",size:"",qty:"",note:""});
                   showToast(`+${q} ${productName} logged`);
                 }}>
@@ -4015,6 +4022,184 @@ export default function App() {
           </div>
         )}
 
+
+        {/* ═══ STOCK (manager only) ════════════════════════════════════════════ */}
+        {safeScreen==="stock"&&isPrivileged&&(()=>{
+          const [stockTab, setStockTab] = [useState("view"), s => s][0] === undefined ? [useState("view"), s=>s] : (() => { const [t,st] = useState("view"); return [t,st]; })();
+          const addForm = { style:"", code:"", colour:"", size:"", price:"", qty:"", note:"" };
+          const [sForm, setSForm] = useState(addForm);
+
+          const totalItems = products.length;
+          const totalUnits = products.reduce((t,p)=>t+(p.stock||0),0);
+          const availUnits = products.reduce((t,p)=>t+Math.max(0,(p.stock||0)-(p.onLoan||0)),0);
+          const lowStockItems = products.filter(p=>Math.max(0,(p.stock||0)-(p.onLoan||0))<=3);
+
+          return (
+            <div>
+              <div className="section-title">{divLabel} — Stock</div>
+              <div className="section-sub">Full inventory for this concession</div>
+
+              {/* Summary cards */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:20}}>
+                {[
+                  {label:"Total Items",val:totalItems,color:divColor},
+                  {label:"Available",val:availUnits,color:"#6ea870"},
+                  {label:"Low Stock",val:lowStockItems.length,color:lowStockItems.length>0?"#e07070":"#555"},
+                ].map(({label,val,color})=>(
+                  <div key={label} className="card" style={{padding:"14px 12px",textAlign:"center"}}>
+                    <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"#555",marginBottom:6}}>{label}</div>
+                    <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,color}}>{val}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Sub tabs */}
+              <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a1714",marginBottom:20}}>
+                {[{id:"view",label:"All Stock"},{id:"add",label:"+ Add Item"},{id:"low",label:`Low Stock${lowStockItems.length>0?` (${lowStockItems.length})`:""}`}].map(t=>(
+                  <button key={t.id} onClick={()=>setSForm(f=>({...f,_tab:t.id}))}
+                    style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${(sForm._tab||"view")===t.id?divColor:"transparent"}`,color:(sForm._tab||"view")===t.id?divColor:"#555",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .15s",whiteSpace:"nowrap"}}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* All Stock tab */}
+              {(sForm._tab||"view")==="view"&&(
+                products.length===0 ? (
+                  <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No stock items yet — add some below</div>
+                ) : (
+                  <div style={{overflowX:"auto",borderRadius:6,border:"1px solid #1e1c1a"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,fontFamily:"'Outfit',sans-serif"}}>
+                      <thead>
+                        <tr style={{background:"#111009",borderBottom:`2px solid ${divColor}44`}}>
+                          {["Style","Code","Colour","Size","Price","In Stock","On Loan","Available",""].map(h=>(
+                            <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:divColor,whiteSpace:"nowrap"}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {products.map((p,i)=>{
+                          const avail = Math.max(0,(p.stock||0)-(p.onLoan||0));
+                          const isLow = avail<=3;
+                          return (
+                            <tr key={p.id} style={{borderBottom:"1px solid #1a1714",background:i%2===0?"#0e0c0a":"#111009"}}>
+                              <td style={{padding:"10px 12px",fontWeight:600,color:"#f0e8d8"}}>{p.name}</td>
+                              <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{p.sku||"—"}</td>
+                              <td style={{padding:"10px 12px",color:"#888",fontFamily:"monospace",fontSize:11}}>{p.colour||"—"}</td>
+                              <td style={{padding:"10px 12px",textAlign:"center"}}>
+                                {p.size?<span style={{background:divColor+"22",color:divColor,fontWeight:700,padding:"2px 8px",borderRadius:3,fontSize:11}}>{p.size}</span>:<span style={{color:"#333"}}>—</span>}
+                              </td>
+                              <td style={{padding:"10px 12px",color:"#c0b8a8"}}>{p.price?`€${Number(p.price).toFixed(2)}`:"—"}</td>
+                              <td style={{padding:"10px 12px",fontFamily:"'Playfair Display',serif",fontSize:15,color:"#f0e8d8",fontWeight:700}}>{p.stock||0}</td>
+                              <td style={{padding:"10px 12px",color:"#888"}}>{p.onLoan||0}</td>
+                              <td style={{padding:"10px 12px",fontFamily:"'Playfair Display',serif",fontSize:15,color:isLow?"#e07070":"#6ea870",fontWeight:700}}>{avail}</td>
+                              <td style={{padding:"10px 12px"}}>
+                                <div style={{display:"flex",gap:6}}>
+                                  <button onClick={()=>setProducts(pr=>pr.map(x=>x.id===p.id?{...x,stock:(x.stock||0)+1}:x))}
+                                    style={{background:"#1a2a1a",border:"1px solid #3a6a3a",color:"#6ea870",padding:"3px 8px",cursor:"pointer",borderRadius:3,fontFamily:"inherit",fontSize:11,fontWeight:700}}>+1</button>
+                                  <button onClick={()=>{if((p.stock||0)>0)setProducts(pr=>pr.map(x=>x.id===p.id?{...x,stock:Math.max(0,(x.stock||0)-1)}:x))}}
+                                    style={{background:"#2a1a1a",border:"1px solid #6a3a3a",color:"#e07070",padding:"3px 8px",cursor:"pointer",borderRadius:3,fontFamily:"inherit",fontSize:11,fontWeight:700}}>−1</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+
+              {/* Add Item tab */}
+              {(sForm._tab||"view")==="add"&&(
+                <div className="card" style={{padding:20}}>
+                  <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                    <div>
+                      <label className="label">Style Name *</label>
+                      <input className="inp" placeholder="e.g. JAPAN" value={sForm.style||""} onChange={e=>setSForm(f=>({...f,style:e.target.value}))} />
+                    </div>
+                    <div>
+                      <label className="label">Style Code / Colour *</label>
+                      <div style={{display:"flex",alignItems:"center",background:"#161412",border:"1px solid #2a2520",borderRadius:8,overflow:"hidden"}}>
+                        <input placeholder="Code" value={sForm.code||""} maxLength={5}
+                          onChange={e=>{const v=e.target.value.slice(0,5);setSForm(f=>({...f,code:v}));if(v.length===5)document.getElementById("stock-colour")?.focus();}}
+                          style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"14px",fontSize:16,fontFamily:"inherit",minWidth:0}} />
+                        <span style={{color:"#444",fontSize:14,padding:"0 4px"}}>/</span>
+                        <input id="stock-colour" placeholder="Colour" value={sForm.colour||""} maxLength={5}
+                          onChange={e=>setSForm(f=>({...f,colour:e.target.value.slice(0,5)}))}
+                          style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0e8d8",padding:"14px",fontSize:16,fontFamily:"inherit",minWidth:0}} />
+                      </div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <div>
+                        <label className="label">Size *</label>
+                        <select className="inp" value={sForm.size||""} onChange={e=>setSForm(f=>({...f,size:e.target.value}))}>
+                          <option value="">— Size —</option>
+                          {SHOE_SIZES.map(s=><option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">Price (€) *</label>
+                        <input className="inp" type="number" placeholder="0.00" value={sForm.price||""} onChange={e=>setSForm(f=>({...f,price:e.target.value}))} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="label">Initial Quantity *</label>
+                      <input className="inp" type="number" min="1" placeholder="e.g. 6" value={sForm.qty||""} onChange={e=>setSForm(f=>({...f,qty:e.target.value}))} />
+                    </div>
+                    <div>
+                      <label className="label">Note</label>
+                      <input className="inp" placeholder="Optional note" value={sForm.note||""} onChange={e=>setSForm(f=>({...f,note:e.target.value}))} />
+                    </div>
+                    <button className="btn btn-main" style={{width:"100%",padding:14}} onClick={()=>{
+                      const {style,code,colour,size,price,qty} = sForm;
+                      if (!style?.trim()) return showToast("Enter style name","err");
+                      if (!code?.trim()) return showToast("Enter style code","err");
+                      if (!colour?.trim()) return showToast("Enter colour","err");
+                      if (!size) return showToast("Select a size","err");
+                      if (!price||parseFloat(price)<=0) return showToast("Enter price","err");
+                      const q = parseInt(qty);
+                      if (!q||q<=0) return showToast("Enter quantity","err");
+                      const newProduct = {
+                        id: uid(), name: style.trim(), sku: code.trim(),
+                        colour: colour.trim(), size, price: parseFloat(price),
+                        stock: q, onLoan: 0,
+                        barcode: "", division
+                      };
+                      setProducts(p=>[...p, newProduct]);
+                      setSForm({...addForm, _tab:"view"});
+                      showToast(`${style.trim()} added to stock`);
+                    }}>
+                      ✓ Add to Stock
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Low Stock tab */}
+              {(sForm._tab||"view")==="low"&&(
+                lowStockItems.length===0 ? (
+                  <div style={{textAlign:"center",padding:"48px 16px",color:"#6ea870",fontSize:13}}>✓ All stock levels healthy</div>
+                ) : (
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {lowStockItems.map((p,i)=>{
+                      const avail = Math.max(0,(p.stock||0)-(p.onLoan||0));
+                      return (
+                        <div key={p.id} style={{background:"#1a0e0e",border:"1px solid #6a3a3a",borderRadius:6,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div>
+                            <div style={{fontWeight:600,color:"#f0e8d8",marginBottom:4}}>{p.name} <span style={{fontSize:10,color:"#888",fontFamily:"monospace"}}>{p.sku}/{p.colour}</span></div>
+                            <div style={{fontSize:12,color:"#888"}}>Size {p.size||"—"} · {avail} available · {p.onLoan||0} on loan</div>
+                          </div>
+                          <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,color:"#e07070",fontWeight:700}}>{avail}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+            </div>
+          );
+        })()}
 
         {/* ═══ AI HUB (manager only) ════════════════════════════════════════ */}
         {safeScreen==="ai" && currentUser.role==="manager" && (() => {
