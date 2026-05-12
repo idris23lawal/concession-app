@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { syncSale, syncRefund, syncLoan } from './syncService';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const KEY = "concession_v3";
@@ -1346,6 +1347,7 @@ export default function App() {
       };
     });
     setSales(p=>[...newSales,...p]);
+    newSales.forEach(s => syncSale({...s, division}));
     // Update scan log outcomes with style details from confirmed items
     setScanLog(p=>p.map(entry=>{
       const match = valid.find(i=>i.scanId===entry.id);
@@ -1397,6 +1399,7 @@ export default function App() {
       tillNo:activeTill, customerRef, date:new Date().toISOString()
     };
     setSales(p=>[sale,...p]);
+    syncSale(sale);
     if (product) setProducts(p=>p.map(x=>x.id===product.id?{...x,stock:x.stock-1}:x));
     setSaleForm(blankSaleForm);
     showToast(resolvedStaffId==="UNASSIGNED" ? `Sale saved — assign staff later` : `Sale recorded — ${fmt(unitPrice)} · ${activeTill}`);
@@ -1411,13 +1414,16 @@ export default function App() {
     if (!location.trim()) return showToast("Enter location / purpose","err");
     if (!requestedBy.trim()) return showToast("Enter name of person requesting","err");
     const productName=`${style.trim()}${colour?" ("+colour+")":""}`;
-    setLoans(p=>[{id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,location:location||"Unspecified",note,requestedBy:requestedBy.trim(),date:new Date().toISOString(),returned:false},...p]);
+    const newLoan = {id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,location:location||"Unspecified",note,requestedBy:requestedBy.trim(),date:new Date().toISOString(),returned:false};
+    setLoans(p=>[newLoan,...p]);
+    syncLoan(newLoan);
     setLoanForm({style:"",code:"",colour:"",size:"",location:"",note:"",requestedBy:""});
     showToast(`${productName} on loan`);
   };
 
   const returnLoan = (loan) => {
     setLoans(p=>p.map(l=>l.id===loan.id?{...l,returned:true,returnedDate:new Date().toISOString(),returnedBy:currentUser.id}:l));
+    syncLoan({...loan,returned:true,returnedDate:new Date().toISOString()});
     setProducts(p=>p.map(x=>x.id===loan.productId?{...x,onLoan:Math.max(0,x.onLoan-loan.qty)}:x));
     showToast(`${loan.productName} returned`);
   };
@@ -1430,7 +1436,9 @@ export default function App() {
     if (!size) return showToast("Select a size","err");
     if (!shopperName||!shopperId) return showToast("Shopper name and ID required","err");
     const productName=`${style.trim()}${colour?" ("+colour+")":""}`;
-    setPsLoans(p=>[{id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,price:0,qty:1,shopperName,shopperId,note,date:new Date().toISOString(),status:"out",eodResult:null},...p]);
+    const newPsLoan = {id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,price:0,qty:1,shopperName,shopperId,note,date:new Date().toISOString(),status:"out",eodResult:null,type:"ps"};
+    setPsLoans(p=>[newPsLoan,...p]);
+    syncLoan(newPsLoan);
     setPsForm({style:"",code:"",colour:"",size:"",shopperName:"",shopperId:"",note:""});
     showToast(`Loan issued to ${shopperName}`);
   };
@@ -1455,7 +1463,9 @@ export default function App() {
     if (!tillNo) return showToast("Till number required","err");
     const productName=`${style.trim()}${colour?" ("+colour+")":""}`;
     const exchangeProductName=type==="exchange"&&exchangeStyle?`${exchangeStyle.trim()}${exchangeColour?" ("+exchangeColour+")":""}`:null;
-    setRefunds(p=>[{id:uid(),type,division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,unitPrice:parseFloat(origPrice)||0,tillNo,reason,origSaleId:"",date:new Date().toISOString(),exchangeProductName},...p]);
+    const newRefund = {id:uid(),type,division,staffId:currentUser.id,staffName:currentUser.name,productId:null,productName,style:style.trim(),colour,size,sku:code,qty:1,unitPrice:parseFloat(origPrice)||0,tillNo,reason,origSaleId:"",date:new Date().toISOString(),exchangeProductName};
+    setRefunds(p=>[newRefund,...p]);
+    syncRefund(newRefund);
     setRefForm({type:"refund",style:"",code:"",colour:"",size:"",origPrice:"",tillNo:"",reason:"",exchangeStyle:"",exchangeCode:"",exchangeColour:"",exchangeSize:""});
     showToast(`${type==="refund"?"Refund":"Exchange"} recorded`);
   };
