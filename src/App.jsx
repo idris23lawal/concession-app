@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { syncSale, syncRefund, syncLoan, fetchAllData, subscribeToChanges } from './syncService';
+import { syncSale, syncRefund, syncLoan, syncFaulty, syncOddShoe, syncProduct, syncDelivery, fetchAllData, subscribeToChanges } from './syncService';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const KEY = "concession_v3";
@@ -1158,48 +1158,50 @@ export default function App() {
 
   // Fetch from Supabase on load + subscribe to real-time changes
   useEffect(() => {
-    // Fetch latest data from Supabase
     fetchAllData().then(data => {
-      if (!data) return; // offline — keep localStorage data
+      if (!data) return;
       setAllSales(data.sales);
       setAllRefunds(data.refunds);
       setAllLoans(data.loans);
       setAllPsLoans(data.psLoans);
+      setAllFaulty(data.faulty);
+      setAllOddShoes(data.oddShoes);
+      setAllProducts(data.products);
+      setAllDeliveries(data.deliveries);
     });
 
-    // Subscribe to real-time changes from other devices
     const unsubscribe = subscribeToChanges({
       onSale: (sale) => {
         const div = sale.division === 'womens' ? 'womens' : 'mens';
-        setAllSales(p => {
-          const existing = p[div] ?? [];
-          const filtered = existing.filter(s => s.id !== sale.id);
-          return { ...p, [div]: [sale, ...filtered] };
-        });
+        setAllSales(p => ({ ...p, [div]: [sale, ...(p[div]??[]).filter(s=>s.id!==sale.id)] }));
       },
       onRefund: (refund) => {
         const div = refund.division === 'womens' ? 'womens' : 'mens';
-        setAllRefunds(p => {
-          const existing = p[div] ?? [];
-          const filtered = existing.filter(r => r.id !== refund.id);
-          return { ...p, [div]: [refund, ...filtered] };
-        });
+        setAllRefunds(p => ({ ...p, [div]: [refund, ...(p[div]??[]).filter(r=>r.id!==refund.id)] }));
       },
       onLoan: (loan) => {
         const div = loan.division === 'womens' ? 'womens' : 'mens';
         if (loan.type === 'ps') {
-          setAllPsLoans(p => {
-            const existing = p[div] ?? [];
-            const filtered = existing.filter(l => l.id !== loan.id);
-            return { ...p, [div]: [loan, ...filtered] };
-          });
+          setAllPsLoans(p => ({ ...p, [div]: [loan, ...(p[div]??[]).filter(l=>l.id!==loan.id)] }));
         } else {
-          setAllLoans(p => {
-            const existing = p[div] ?? [];
-            const filtered = existing.filter(l => l.id !== loan.id);
-            return { ...p, [div]: [loan, ...filtered] };
-          });
+          setAllLoans(p => ({ ...p, [div]: [loan, ...(p[div]??[]).filter(l=>l.id!==loan.id)] }));
         }
+      },
+      onFaulty: (item) => {
+        const div = item.division === 'womens' ? 'womens' : 'mens';
+        setAllFaulty(p => ({ ...p, [div]: [item, ...(p[div]??[]).filter(f=>f.id!==item.id)] }));
+      },
+      onOddShoe: (item) => {
+        const div = item.division === 'womens' ? 'womens' : 'mens';
+        setAllOddShoes(p => ({ ...p, [div]: [item, ...(p[div]??[]).filter(o=>o.id!==item.id)] }));
+      },
+      onProduct: (product, division) => {
+        const div = division === 'womens' ? 'womens' : 'mens';
+        setAllProducts(p => ({ ...p, [div]: [...(p[div]??[]).filter(x=>x.id!==product.id), product] }));
+      },
+      onDelivery: (delivery) => {
+        const div = delivery.division === 'womens' ? 'womens' : 'mens';
+        setAllDeliveries(p => ({ ...p, [div]: [delivery, ...(p[div]??[]).filter(d=>d.id!==delivery.id)] }));
       },
     });
 
@@ -1299,10 +1301,12 @@ export default function App() {
     if (!colour.trim()) return showToast("Enter colour","err");
     if (!size) return showToast("Select a size","err");
     if (!faultType) return showToast("Select fault type","err");
-    setFaulty(p => [{id:uid(), division, staffId:currentUser.id, staffName:currentUser.name,
+    const newFaulty = {id:uid(), division, staffId:currentUser.id, staffName:currentUser.name,
       style:style.trim(), colour:colour.trim(), size, sku:sku.trim(),
       faultType, description:description.trim(), action,
-      date:new Date().toISOString(), status:"open"},...p]);
+      date:new Date().toISOString(), status:"open"};
+    setFaulty(p => [newFaulty,...p]);
+    syncFaulty(newFaulty);
     setFaultyForm(blankFaultyForm);
     showToast("Faulty item logged");
   };
@@ -1314,14 +1318,17 @@ export default function App() {
     if (!sku.trim()) return showToast("Enter style code","err");
     if (!colour.trim()) return showToast("Enter colour","err");
     if (!shoe1Size || !shoe2Size) return showToast("Select both sizes","err");
-    setOddShoes(p => [{id:uid(), division, staffId:currentUser.id, staffName:currentUser.name,
+    const newOdd = {id:uid(), division, staffId:currentUser.id, staffName:currentUser.name,
       style:style.trim(), colour:colour.trim(), sku:sku.trim(),
       foundBy: foundBy.trim() || currentUser.id,
       foundByName: staff.find(s=>s.id.toLowerCase()===foundBy.trim().toLowerCase())?.name || foundBy.trim() || currentUser.name,
+      shoe1Size, shoe1Foot, shoe2Size, shoe2Foot,
+      shoe2Style:shoe2Style.trim(), shoe2Colour:shoe2Colour.trim(), shoe2Sku:shoe2Sku.trim(),
       shoe1:{size:shoe1Size, foot:shoe1Foot},
       shoe2:{size:shoe2Size, foot:shoe2Foot, style:shoe2Style.trim(), colour:shoe2Colour.trim(), sku:shoe2Sku.trim()},
-      note:note.trim(),
-      date:new Date().toISOString(), status:"logged"},...p]);
+      note:note.trim(), date:new Date().toISOString(), status:"logged"};
+    setOddShoes(p => [newOdd,...p]);
+    syncOddShoe(newOdd);
     setOddForm(blankOddForm);
     showToast("Odd pair logged");
   };
@@ -3966,15 +3973,21 @@ export default function App() {
                   const q=parseInt(qty);
                   if (!q||q<=0) return showToast("Enter valid quantity","err");
                   const productName=`${styleName.trim()} (${colour})`;
-                  setDeliveries(p=>[{id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,
+                  const newDelivery = {id:uid(),division,staffId:currentUser.id,staffName:currentUser.name,
                     productName,styleName:styleName.trim(),code:code.trim(),colour:colour.trim(),size,
-                    qty:q,note:note||"",date:new Date().toISOString()},...p]);
+                    qty:q,note:note||"",date:new Date().toISOString()};
+                  setDeliveries(p=>[newDelivery,...p]);
+                  syncDelivery(newDelivery);
                   // Also add to stock inventory
                   const existing = products.find(p=>p.sku===code.trim()&&p.colour===colour.trim()&&p.size===size);
                   if (existing) {
-                    setProducts(p=>p.map(x=>x.id===existing.id?{...x,stock:(x.stock||0)+q}:x));
+                    const updated = {...existing, stock:(existing.stock||0)+q};
+                    setProducts(p=>p.map(x=>x.id===existing.id?updated:x));
+                    syncProduct(updated, division);
                   } else {
-                    setProducts(p=>[...p,{id:uid(),name:styleName.trim(),sku:code.trim(),colour:colour.trim(),size,price:0,stock:q,onLoan:0,barcode:"",division}]);
+                    const newProd = {id:uid(),name:styleName.trim(),sku:code.trim(),colour:colour.trim(),size,price:0,stock:q,onLoan:0,barcode:"",division};
+                    setProducts(p=>[...p,newProd]);
+                    syncProduct(newProd, division);
                   }
                   setRecvForm({styleName:"",code:"",colour:"",size:"",qty:"",note:""});
                   showToast(`+${q} ${productName} logged`);
