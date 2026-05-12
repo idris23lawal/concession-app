@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { syncSale, syncRefund, syncLoan, syncFaulty, syncOddShoe, syncProduct, syncDelivery, fetchAllData, subscribeToChanges } from './syncService';
+import { syncSale, syncRefund, syncLoan, syncFaulty, syncOddShoe, syncProduct, syncDelivery, syncGoal, fetchAllData, subscribeToChanges } from './syncService';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const KEY = "concession_v3";
@@ -1246,6 +1246,9 @@ export default function App() {
   const saveGoals = () => {
     const wk=getWeekKey();
     setAllGoals(g => ({...g, [division]: {...(g[division]??{}), [wk]: editGoals}}));
+    Object.entries(editGoals).forEach(([dayName, goal]) => {
+      syncGoal({ id:`${division}-${wk}-${dayName}`, division, weekKey:wk, dayName, revenue:goal.revenue, units:goal.units });
+    });
     setGoalsModal(false);
     showToast("Targets saved");
   };
@@ -4187,6 +4190,7 @@ export default function App() {
                         barcode: "", division
                       };
                       setProducts(p=>[...p, newProduct]);
+                      syncProduct(newProduct, division);
                       setStockForm(stockAddForm); setStockScreenTab("view");
                       showToast(`${style.trim()} added to stock`);
                     }}>

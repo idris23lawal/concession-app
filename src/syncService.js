@@ -206,3 +206,16 @@ export function subscribeToChanges({ onSale, onRefund, onLoan, onFaulty, onOddSh
 
   return () => supabase.removeChannel(channel)
 }
+
+
+export async function syncGoal(goal) {
+  const { error } = await supabase.from('goals').upsert({
+    id: goal.id,
+    division: goal.division || '',
+    week_key: goal.weekKey || '',
+    day_name: goal.dayName || '',
+    revenue: Number(goal.revenue || 0),
+    units: Number(goal.units || 0)
+  })
+  if (error) console.error('Goal sync failed:', error.message)
+}
