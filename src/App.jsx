@@ -1125,6 +1125,9 @@ export default function App() {
   const [scanMode,       setScanMode]       = useState(false);
   const [histTab,        setHistTab]        = useState("sales");  // history screen tab
   const [faultyOddTab,   setFaultyOddTab]   = useState("faulty");
+  const [stockScreenTab, setStockScreenTab] = useState("view");
+  const stockAddForm = { style:"", code:"", colour:"", size:"", price:"", qty:"", note:"" };
+  const [stockForm,      setStockForm]      = useState(stockAddForm);
   const [allScanLog,     setAllScanLog]     = useState(() => load("scanLog", {womens:[],mens:[]}));
   const [refScanDone,    setRefScanDone]    = useState(false);  // refund scanned
   const [loanScanDone,   setLoanScanDone]   = useState(false);  // loan scanned
@@ -1626,7 +1629,7 @@ export default function App() {
       {id:"history",  label:"History"},
       {id:"eod",      label:"EOD Report"},
       {id:"scanlog",  label:"Scan Log"},
-      {id:"receive",  label:"Receive Stock"},
+      {id:"receive",  label:"Delivery"},
       ...(isManager ? [{id:"ai", label:"✦ AI Hub"}] : []),
     ] : []),
   ];
@@ -3956,20 +3959,25 @@ export default function App() {
                     </select>
                   </div>
                   <div>
-                    <label className="label">Quantity *</label>
-                    <input className="inp" type="number" min="1" placeholder="e.g. 6" value={recvForm.qty||""} onChange={e=>setRecvForm(f=>({...f,qty:e.target.value}))} />
+                    <label className="label">Price (€) *</label>
+                    <input className="inp" type="number" placeholder="0.00" value={recvForm.price||""} onChange={e=>setRecvForm(f=>({...f,price:e.target.value}))} />
                   </div>
+                </div>
+                <div>
+                  <label className="label">Quantity *</label>
+                  <input className="inp" type="number" min="1" placeholder="e.g. 6" value={recvForm.qty||""} onChange={e=>setRecvForm(f=>({...f,qty:e.target.value}))} />
                 </div>
                 <div>
                   <label className="label">Supplier / Note</label>
                   <input className="inp" placeholder="e.g. Head office delivery, PO #1234" value={recvForm.note||""} onChange={e=>setRecvForm(f=>({...f,note:e.target.value}))} />
                 </div>
                 <button className="btn btn-main" style={{width:"100%",padding:14,marginTop:4}} onClick={()=>{
-                  const {styleName,code,colour,size,qty,note}=recvForm;
+                  const {styleName,code,colour,size,qty,note,price}=recvForm;
                   if (!styleName?.trim()) return showToast("Enter style name","err");
                   if (!code?.trim()) return showToast("Enter style code","err");
                   if (!colour?.trim()) return showToast("Enter colour","err");
                   if (!size) return showToast("Select a size","err");
+                  if (!price||parseFloat(price)<=0) return showToast("Enter price","err");
                   const q=parseInt(qty);
                   if (!q||q<=0) return showToast("Enter valid quantity","err");
                   const productName=`${styleName.trim()} (${colour})`;
@@ -3985,11 +3993,11 @@ export default function App() {
                     setProducts(p=>p.map(x=>x.id===existing.id?updated:x));
                     syncProduct(updated, division);
                   } else {
-                    const newProd = {id:uid(),name:styleName.trim(),sku:code.trim(),colour:colour.trim(),size,price:0,stock:q,onLoan:0,barcode:"",division};
+                    const newProd = {id:uid(),name:styleName.trim(),sku:code.trim(),colour:colour.trim(),size,price:parseFloat(price)||0,stock:q,onLoan:0,barcode:"",division};
                     setProducts(p=>[...p,newProd]);
                     syncProduct(newProd, division);
                   }
-                  setRecvForm({styleName:"",code:"",colour:"",size:"",qty:"",note:""});
+                  setRecvForm({styleName:"",code:"",colour:"",size:"",qty:"",note:"",price:""});
                   showToast(`+${q} ${productName} logged`);
                 }}>
                   ✓ Log Delivery
@@ -4038,9 +4046,8 @@ export default function App() {
 
         {/* ═══ STOCK (manager only) ════════════════════════════════════════════ */}
         {safeScreen==="stock"&&isPrivileged&&(()=>{
-          const [stockTab, setStockTab] = [useState("view"), s => s][0] === undefined ? [useState("view"), s=>s] : (() => { const [t,st] = useState("view"); return [t,st]; })();
-          const addForm = { style:"", code:"", colour:"", size:"", price:"", qty:"", note:"" };
-          const [sForm, setSForm] = useState(addForm);
+          const sForm = stockForm;
+          const setSForm = setStockForm;
 
           const totalItems = products.length;
           const totalUnits = products.reduce((t,p)=>t+(p.stock||0),0);
@@ -4069,15 +4076,15 @@ export default function App() {
               {/* Sub tabs */}
               <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a1714",marginBottom:20}}>
                 {[{id:"view",label:"All Stock"},{id:"add",label:"+ Add Item"},{id:"low",label:`Low Stock${lowStockItems.length>0?` (${lowStockItems.length})`:""}`}].map(t=>(
-                  <button key={t.id} onClick={()=>setSForm(f=>({...f,_tab:t.id}))}
-                    style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${(sForm._tab||"view")===t.id?divColor:"transparent"}`,color:(sForm._tab||"view")===t.id?divColor:"#555",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .15s",whiteSpace:"nowrap"}}>
+                  <button key={t.id} onClick={()=>setStockScreenTab(t.id)}
+                    style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${stockScreenTab===t.id?divColor:"transparent"}`,color:stockScreenTab===t.id?divColor:"#555",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .15s",whiteSpace:"nowrap"}}>
                     {t.label}
                   </button>
                 ))}
               </div>
 
               {/* All Stock tab */}
-              {(sForm._tab||"view")==="view"&&(
+              {stockScreenTab==="view"&&(
                 products.length===0 ? (
                   <div style={{textAlign:"center",padding:"48px 16px",color:"#333",fontSize:13}}>No stock items yet — add some below</div>
                 ) : (
@@ -4124,7 +4131,7 @@ export default function App() {
               )}
 
               {/* Add Item tab */}
-              {(sForm._tab||"view")==="add"&&(
+              {stockScreenTab==="add"&&(
                 <div className="card" style={{padding:20}}>
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
                     <div>
@@ -4180,7 +4187,7 @@ export default function App() {
                         barcode: "", division
                       };
                       setProducts(p=>[...p, newProduct]);
-                      setSForm({...addForm, _tab:"view"});
+                      setStockForm(stockAddForm); setStockScreenTab("view");
                       showToast(`${style.trim()} added to stock`);
                     }}>
                       ✓ Add to Stock
@@ -4190,7 +4197,7 @@ export default function App() {
               )}
 
               {/* Low Stock tab */}
-              {(sForm._tab||"view")==="low"&&(
+              {stockScreenTab==="low"&&(
                 lowStockItems.length===0 ? (
                   <div style={{textAlign:"center",padding:"48px 16px",color:"#6ea870",fontSize:13}}>✓ All stock levels healthy</div>
                 ) : (
